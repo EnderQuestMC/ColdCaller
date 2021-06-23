@@ -6,8 +6,7 @@
     "type": "object",
     "properties": {
       "token": {
-        "type": "string",
-        "pattern": "([a-zA-Z0-9_]{24})\\.([a-zA-Z0-9_]{6})\\.([a-zA-Z0-9_]{27})"
+        "type": "string"
       },
       "password": {
         "type": "string"

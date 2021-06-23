@@ -87,36 +87,41 @@ class CallerManager:
         if self._closed:
             raise RuntimeError("The manager has had it's collections closed.")
         else:
-            client: discord.Client = discord.Client(loop=loop, status=discord.Status.idle)
+            client: discord.Client = discord.Client(
+                loop=loop,
+                status=discord.Status.idle,
+                intents=discord.Intents.all()
+            )
 
             @tasks.loop(hours=1)
             async def send_friend_request() -> None:
-                for user in client.users:
-                    if user != client.user and user.relationship is None:
-                        try:
-                            await user.send(self._spam)
-                        except discord.Forbidden:
+                for guild in client.guilds:
+                    async for member in guild.fetch_members():
+                        if member != guild.me and member.relationship is None:
                             try:
-                                await user.send_friend_request()
+                                await member.send(self._spam)
                             except discord.Forbidden:
-                                await asyncio.sleep(1)
-                                continue  # We can't friend this user. Move on!
+                                try:
+                                    await member.send_friend_request()
+                                except discord.Forbidden:
+                                    await asyncio.sleep(1)
+                                    continue  # We can't friend this user. Move on!
+                                except Exception:
+                                    raise
+                                else:
+                                    logging.info(
+                                        f"Caller #{self._callers.index(self.get_caller(client))} "
+                                        f"dispatched a friend request to {member.name} ({member.id})"
+                                    )
                             except Exception:
                                 raise
                             else:
                                 logging.info(
                                     f"Caller #{self._callers.index(self.get_caller(client))} "
-                                    f"dispatched a friend request to {user.name} ({user.id})"
+                                    f"spammed {member.name} ({member.id})"
                                 )
-                        except Exception:
-                            raise
-                        else:
-                            logging.info(
-                                f"Caller #{self._callers.index(self.get_caller(client))} "
-                                f"spammed {user.name} ({user.id})"
-                            )
-                            await user.block()
-                        await asyncio.sleep(1)
+                                await member.block()
+                            await asyncio.sleep(1)
 
             @send_friend_request.before_loop
             async def wait_for_client() -> None:
@@ -168,6 +173,7 @@ class CallerManager:
             @reidentification.before_loop
             async def wait_for_reidentification() -> None:
                 await client.wait_until_ready()
+                await asyncio.sleep(3600)
 
             @client.event
             async def on_disconnect() -> None:
