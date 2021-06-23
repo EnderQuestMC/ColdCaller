@@ -7,7 +7,8 @@ import asyncio
 import os
 import json
 import logging
-from typing import List, Optional, List
+import random
+from typing import BinaryIO, Optional, List, Dict
 
 import jsonschema
 import discord
@@ -50,10 +51,18 @@ class Caller:
 class CallerManager:
     """Class that manages callers."""
 
-    def __init__(self, spam: str, loop: asyncio.AbstractEventLoop):
-        self._closed = False
-        self._spam = spam
-        self._loop = loop
+    def __init__(
+            self,
+            spam: str,
+            loop: asyncio.AbstractEventLoop,
+            usernames: List[str],
+            avatars: Optional[List[BinaryIO]] = None,
+    ) -> None:
+        self._closed: bool = False
+        self._spam: str = spam
+        self._loop: asyncio.AbstractEventLoop = loop
+        self._usernames: List[str] = usernames
+        self._avatars: Optional[List[BinaryIO]] = avatars
 
         self._callers: List[Caller] = []
 
@@ -69,8 +78,9 @@ class CallerManager:
             else:
                 raise ValueError("Client does not have a caller.")
 
-    def add_caller(self, token: str, bot: bool = False) -> Caller:
-        """Adds a caller to the registry, and starts it."""
+    def add_caller(self, token: str, password: str, bot: bool = False) -> Caller:
+        """Adds a caller to the registry, and starts it.
+        This user must be verified and the password must already be set."""
 
         if self._closed:
             raise RuntimeError("The manager has had it's collections closed.")
@@ -81,6 +91,22 @@ class CallerManager:
             async def on_ready() -> None:
                 logging.info(
                     f"Caller #{self._callers.index(self.get_caller(client))} logged into as "
+                    f"{client.user.name} ({client.user.id})"
+                )
+
+                username: str = f"{random.choice(self._usernames)} {random.choice(self._usernames)}".title()
+
+                if self._avatars is not None:
+                    await client.user.edit(
+                        password=password,
+                        username=username,
+                        avatar=random.choice(self._avatars).read()
+                    )
+                else:
+                    await client.user.edit(password=password, username=username)
+
+                logging.info(
+                    f"Caller #{self._callers.index(self.get_caller(client))} changed identity to "
                     f"{client.user.name} ({client.user.id})"
                 )
 
@@ -141,19 +167,27 @@ if __name__ == "__main__":
         spam: str = message_fp.read()
 
     with open("config/tokens.json") as tokens_fp:
-        tokens: List[str] = json.load(tokens_fp)
+        tokens: List[Dict[str, str]] = json.load(tokens_fp)
 
     with open("resources/token_schema.json") as schema_fp:
         schema: dict = json.load(schema_fp)
+
+    with open("resources/words.json") as words_fp:
+        words: List[str] = json.load(words_fp)
+
+    avatars: List[BinaryIO] = []
+
+    for file_name in os.listdir("resources/avatars/"):
+        avatars.append(open(f"resources/avatars/{file_name}", "rb"))
 
     jsonschema.validate(tokens, schema)
 
     loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 
-    caller_manager: CallerManager = CallerManager(spam, loop)
+    caller_manager: CallerManager = CallerManager(spam, loop, words, avatars)
 
     for token in tokens:
-        caller_manager.add_caller(token)
+        caller_manager.add_caller(token["token"], token["password"])
 
     try:
         logging.info(
