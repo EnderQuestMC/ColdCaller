@@ -2,11 +2,7 @@ version: '3'
 services:
   peppercord:
     image: ghcr.io/regulad/coldcaller:latest
-    environment:
-      - CC_OWNER_ID=YOUR_TOKEN
     volumes:
       - config:/app/config
-  mongo:
-    image: mongo
 volumes:
   config:
