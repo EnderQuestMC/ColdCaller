@@ -3,7 +3,6 @@ ColdCaller
 https://github.com/regulad/ColdCaller
 """
 
-import sys
 import asyncio
 import os
 import json
@@ -17,12 +16,12 @@ from discord.ext import tasks
 
 
 class Caller:
-    def __init__(self, client: discord.Client, token: str, bot: bool = False) -> None:
+    def __init__(self, client: discord.Client, token: str) -> None:
         """Schedules a caller's execution."""
 
         self._client: discord.Client = client
         self._token: str = token
-        self._task: asyncio.Task = client.loop.create_task(client.start(token, bot=bot))
+        self._task: asyncio.Task = client.loop.create_task(client.start(token))
 
     @property
     def closed(self) -> bool:
@@ -80,112 +79,96 @@ class CallerManager:
             else:
                 raise ValueError("Client does not have a caller.")
 
-    def add_caller(self, token: str, password: str, bot: bool = False) -> Caller:  # This is all just a little bit jank.
+    def add_caller(self, token: str, password: str) -> Caller:  # This is all just a little bit jank.
         """Adds a caller to the registry, and starts it.
         This user must be verified and the password must already be set."""
 
         if self._closed:
             raise RuntimeError("The manager has had it's collections closed.")
         else:
-            client: discord.Client = discord.Client(
-                loop=loop,
-                status=discord.Status.idle,
-                intents=discord.Intents.all()
-            )
+            client: discord.Client = discord.Client(loop=loop, status=discord.Status.idle)
 
-            @tasks.loop(hours=1)
-            async def send_friend_request() -> None:
-                for guild in client.guilds:
-                    async for member in guild.fetch_members():
-                        if member != guild.me and member.relationship is None:
+            @tasks.loop(minutes=30)
+            async def spam() -> None:
+                for user in client.users:  # Only thing that kinda works. Need to make members work
+                    if user != client.user:
+                        profile: discord.Profile = await client.fetch_user_profile(user.id)
+                        user: discord.User = profile.user
+                        await asyncio.sleep(1)  # Should wait after every API request, because self-bot shenanigans.
+                        if user.relationship is None:
                             try:
-                                await member.send(self._spam)
+                                await user.send(self._spam)
                             except discord.Forbidden:
+                                await asyncio.sleep(1)
                                 try:
-                                    await member.send_friend_request()
+                                    await user.send_friend_request()
                                 except discord.Forbidden:
                                     await asyncio.sleep(1)
-                                    continue  # We can't friend this user. Move on!
+                                    continue
                                 except Exception:
                                     raise
                                 else:
                                     logging.info(
                                         f"Caller #{self._callers.index(self.get_caller(client))} "
-                                        f"dispatched a friend request to {member.name} ({member.id})"
+                                        f"dispatched a friend request to {user.name} ({user.id})"
                                     )
                             except Exception:
                                 raise
                             else:
+                                await asyncio.sleep(1)
+                                await user.block()
+                                await asyncio.sleep(1)
                                 logging.info(
                                     f"Caller #{self._callers.index(self.get_caller(client))} "
-                                    f"spammed {member.name} ({member.id})"
+                                    f"spammed {user.name} ({user.id})"
                                 )
-                                await member.block()
-                            await asyncio.sleep(1)
 
-            @send_friend_request.before_loop
+            @spam.before_loop
             async def wait_for_client() -> None:
                 await client.wait_until_ready()
 
+            """
             @tasks.loop(hours=1)
             async def reidentification() -> None:
-                username: str = f"{random.choice(self._usernames)} {random.choice(self._usernames)}".title()
-
-                if self._avatars is not None:
-                    try:
-                        avatar: BinaryIO = random.choice(self._avatars)
-
-                        await client.user.edit(
-                            password=password,
-                            username=username,
-                            avatar=avatar.read()
-                        )
-                    except discord.Forbidden:
-                        logging.error(
-                            f"Caller #{self._callers.index(self.get_caller(client))} could not reidentify, exiting..."
-                        )
-                        client.loop.create_task(self.remove_caller(self.get_caller(client)))
-                        # Run like heck! Can't be awaited because it would loop forever.
-                    except Exception:
-                        raise
-                    else:
-                        logging.info(
-                            f"Caller #{self._callers.index(self.get_caller(client))} changed identity to "
-                            f"{client.user.name} ({client.user.id}) with avatar {avatar.name}"
-                        )
+                try:
+                    await client.user.edit(
+                        password=password,
+                        username=(
+                            (" " if random.randint(0, 100) > 20 else "-")
+                            .join(random.choice(self._usernames) for _ in range(0, random.randint(1, 2))).title()
+                        ),
+                        avatar=random.choice(self._avatars).read() if self._avatars is not None else None,
+                        house=random.choice(discord.HypeSquadHouse.__members__.values())
+                    )
+                except discord.Forbidden:
+                    logging.warning(
+                        f"Caller #{self._callers.index(self.get_caller(client))} could not reidentify!"
+                    )
+                except Exception:
+                    raise
                 else:
-                    try:
-                        await client.user.edit(password=password, username=username)
-                    except discord.Forbidden:
-                        logging.error(
-                            f"Caller #{self._callers.index(self.get_caller(client))} could not reidentify, exiting..."
-                        )
-                        client.loop.create_task(self.remove_caller(self.get_caller(client)))
-                        # Run like heck! Can't be awaited because it would loop forever.
-                    except Exception:
-                        raise
-                    else:
-                        logging.info(
-                            f"Caller #{self._callers.index(self.get_caller(client))} changed identity to "
-                            f"{client.user.name} ({client.user.id})"
-                        )
+                    logging.info(
+                        f"Caller #{self._callers.index(self.get_caller(client))} changed identity to "
+                        f"{client.user.name} ({client.user.id})"
+                    )
 
             @reidentification.before_loop
             async def wait_for_reidentification() -> None:
                 await client.wait_until_ready()
                 await asyncio.sleep(3600)
+            """
 
             @client.event
             async def on_disconnect() -> None:
-                if send_friend_request.is_running():
-                    send_friend_request.cancel()
-                if reidentification.is_running():
-                    reidentification.cancel()
+                if spam.is_running():
+                    spam.cancel()
+                # if reidentification.is_running():
+                #     reidentification.cancel()
 
             @client.event
             async def on_connect() -> None:
-                send_friend_request.start()
-                reidentification.start()
+                spam.start()
+                # reidentification.start()
 
             @client.event
             async def on_ready() -> None:
@@ -205,21 +188,13 @@ class CallerManager:
                         or before.type == discord.RelationshipType.incoming_request \
                         and after.type == discord.RelationshipType.friend:
                     await after.user.send(self._spam)
+                    await after.user.block()
                     logging.info(
                         f"Caller #{self._callers.index(self.get_caller(client))} "
                         f"spammed {after.user.name} ({after.user.id})"
                     )
-                    await after.user.block()
 
-            @client.event
-            async def on_error(event, *args, **kwargs) -> None:
-                exception: BaseException = sys.exc_info()[1]
-
-                if isinstance(exception, discord.HTTPException):
-                    client.loop.create_task(self.remove_caller(self.get_caller(client)))
-                    # Run like heck! Can't be awaited because it would loop forever.
-
-            caller: Caller = Caller(client, token, bot)
+            caller: Caller = Caller(client, token)
 
             self._callers.append(caller)
 

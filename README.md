@@ -1,8 +1,8 @@
 # ColdCaller
 
-ColdCaller is a program that orchestrates cold calling Discord users with spam messages. 
+ColdCaller is a program that orchestrates cold calling Discord users with spam messages.
 
-At runtime, it will create some user tokens. 
+At the moment, it can only use predefined users. In the future, it will create users at runtime.
 
 ## Configuration
 
