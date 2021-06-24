@@ -2,10 +2,14 @@ name: Python
 
 on:
   push:
+    branches:
+      - master
     paths:
       - "**.py"
       - ".github/workflows/python.yml"
   pull_request:
+    branches:
+      - master
     paths:
       - "**.py"
       - ".github/workflows/python.yml"

@@ -155,7 +155,6 @@ class CallerManager:
             @reidentification.before_loop
             async def wait_for_reidentification() -> None:
                 await client.wait_until_ready()
-                await asyncio.sleep(3600)
             """
 
             @client.event
