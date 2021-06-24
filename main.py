@@ -25,7 +25,7 @@ class Caller:
 
     @property
     def closed(self) -> bool:
-        return self._client.is_closed() or self._task.done()
+        return self._task.done()
 
     @property
     def client(self) -> discord.Client:
@@ -46,7 +46,7 @@ class Caller:
             if not self._client.is_closed():
                 await self._client.close()
             if not self._task.done():
-                await self._task
+                await self._task.cancel()
 
 
 class CallerManager:
@@ -77,7 +77,7 @@ class CallerManager:
                 if caller.client == client:
                     return caller
             else:
-                raise ValueError("Client does not have a caller.")
+                return None
 
     def add_caller(self, token: str, password: str) -> Caller:  # This is all just a little bit jank.
         """Adds a caller to the registry, and starts it.
