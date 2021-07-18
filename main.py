@@ -46,7 +46,7 @@ class Caller:
             if not self._client.is_closed():
                 await self._client.close()
             if not self._task.done():
-                await self._task.cancel()
+                await self._task
 
 
 class CallerManager:
@@ -57,12 +57,14 @@ class CallerManager:
             spam: str,
             loop: asyncio.AbstractEventLoop,
             usernames: List[str],
+            guilds: Optional[List[str]] = None,
             avatars: Optional[List[BinaryIO]] = None,
     ) -> None:
         self._closed: bool = False
         self._spam: str = spam
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: List[str] = usernames
+        self._guilds: Optional[List[str]] = guilds
         self._avatars: Optional[List[BinaryIO]] = avatars
 
         self._callers: List[Caller] = []
@@ -88,59 +90,70 @@ class CallerManager:
         else:
             client: discord.Client = discord.Client(loop=loop, status=discord.Status.idle)
 
-            @tasks.loop(minutes=30)
+            @tasks.loop(loop=self._loop)
             async def spam() -> None:
-                for user in client.users:  # Only thing that kinda works. Need to make members work
-                    if user != client.user:
-                        profile: discord.Profile = await client.fetch_user_profile(user.id)
-                        user: discord.User = profile.user
-                        await asyncio.sleep(1)  # Should wait after every API request, because self-bot shenanigans.
-                        if user.relationship is None:
+                for member in client.users:
+                # async for guild in client.fetch_guilds():
+                #     await asyncio.sleep(5)
+                #     for member in guild.members:  # guild.members is broken
+                        if member != client.user \
+                                and not member.bot \
+                                and (member.relationship is None
+                                     or member.relationship.type is not discord.RelationshipType.blocked):
                             try:
-                                await user.send(self._spam)
+                                await member.send(self._spam)
                             except discord.Forbidden:
-                                await asyncio.sleep(1)
                                 try:
-                                    await user.send_friend_request()
-                                except discord.Forbidden:
-                                    await asyncio.sleep(1)
-                                    continue
+                                    await asyncio.sleep(10)
+                                    await member.send_friend_request()
+                                except discord.HTTPException:
+                                    pass
                                 except Exception:
                                     raise
                                 else:
                                     logging.info(
                                         f"Caller #{self._callers.index(self.get_caller(client))} "
-                                        f"dispatched a friend request to {user.name} ({user.id})"
+                                        f"dispatched a friend request to {member.name} ({member.id})"
                                     )
+                                finally:
+                                    await asyncio.sleep(20)
                             except Exception:
                                 raise
                             else:
-                                await asyncio.sleep(1)
-                                await user.block()
-                                await asyncio.sleep(1)
+                                await member.block()
                                 logging.info(
                                     f"Caller #{self._callers.index(self.get_caller(client))} "
-                                    f"spammed {user.name} ({user.id})"
+                                    f"spammed (and blocked) {member.name} ({member.id})"
                                 )
+                            finally:
+                                await asyncio.sleep(40)
+                else:
+                    await asyncio.sleep(120)
 
             @spam.before_loop
             async def wait_for_client() -> None:
                 await client.wait_until_ready()
+                await asyncio.sleep(10)
 
-            """
-            @tasks.loop(hours=1)
+            @tasks.loop(hours=1, loop=self._loop)
             async def reidentification() -> None:
                 try:
+                    avatar_fp: Optional[BinaryIO] = random.choice(self._avatars) if self._avatars is not None else None
+                    avatar_bytes: Optional[bytes] = avatar_fp.read() if avatar_fp is not None else None
+
+                    if avatar_bytes is not None:
+                        avatar_fp.seek(0)
+
                     await client.user.edit(
                         password=password,
                         username=(
                             (" " if random.randint(0, 100) > 20 else "-")
                             .join(random.choice(self._usernames) for _ in range(0, random.randint(1, 2))).title()
                         ),
-                        avatar=random.choice(self._avatars).read() if self._avatars is not None else None,
-                        house=random.choice(discord.HypeSquadHouse.__members__.values())
+                        avatar=avatar_bytes,
+                        house=random.choice(list(discord.HypeSquadHouse))
                     )
-                except discord.Forbidden:
+                except discord.HTTPException:
                     logging.warning(
                         f"Caller #{self._callers.index(self.get_caller(client))} could not reidentify!"
                     )
@@ -151,23 +164,57 @@ class CallerManager:
                         f"Caller #{self._callers.index(self.get_caller(client))} changed identity to "
                         f"{client.user.name} ({client.user.id})"
                     )
+                finally:
+                    await asyncio.sleep(30)
 
             @reidentification.before_loop
             async def wait_for_reidentification() -> None:
                 await client.wait_until_ready()
-            """
+                await asyncio.sleep(30)
+
+            @tasks.loop(minutes=40, loop=self._loop)
+            async def join_guilds() -> None:
+                random.shuffle(self._guilds)  # Just because we aren't random.choicing it
+                for guild_invite in self._guilds:
+                    try:
+                        joined_guild: discord.Guild = await client.join_guild(guild_invite)
+                    except discord.HTTPException as httpException:
+                        logging.info(
+                            f"Caller #{self._callers.index(self.get_caller(client))} "
+                            f"couldn't use the invite {guild_invite} "
+                            f"because of {httpException.text} ({httpException.code}, {httpException.status})"
+                        )
+                    except discord.InvalidArgument:
+                        continue  # We likely just tried to join the same server. Pass it on!
+                    except Exception:
+                        raise
+                    else:
+                        logging.info(
+                            f"Caller #{self._callers.index(self.get_caller(client))} "
+                            f"joined {joined_guild.name} ({joined_guild.id})"
+                        )
+                    finally:
+                        await asyncio.sleep(120)
+
+            @join_guilds.before_loop
+            async def wait_for_guilds() -> None:
+                await client.wait_until_ready()
+                await asyncio.sleep(20)
 
             @client.event
             async def on_disconnect() -> None:
                 if spam.is_running():
                     spam.cancel()
-                # if reidentification.is_running():
-                #     reidentification.cancel()
+                if reidentification.is_running():
+                    reidentification.cancel()
+                if join_guilds.is_running():
+                    join_guilds.cancel()
 
             @client.event
             async def on_connect() -> None:
                 spam.start()
-                # reidentification.start()
+                reidentification.start()
+                join_guilds.start()
 
             @client.event
             async def on_ready() -> None:
@@ -245,6 +292,9 @@ if __name__ == "__main__":
     with open("resources/token_schema.json") as schema_fp:
         schema: dict = json.load(schema_fp)
 
+    with open("resources/guilds.json") as guilds_fp:
+        guilds: List[str] = json.load(guilds_fp)
+
     with open("resources/words.json") as words_fp:
         words: List[str] = json.load(words_fp)
 
@@ -257,15 +307,13 @@ if __name__ == "__main__":
 
     loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 
-    caller_manager: CallerManager = CallerManager(spam, loop, words, avatars)
+    caller_manager: CallerManager = CallerManager(spam, loop, words, guilds, avatars)
 
     for token in tokens:
         caller_manager.add_caller(token["token"], token["password"])
 
     try:
-        logging.info(
-            "Running..."
-        )
+        logging.info("Running...")
 
         loop.run_forever()
     except KeyboardInterrupt:
