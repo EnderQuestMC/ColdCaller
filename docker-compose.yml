@@ -1,6 +1,6 @@
 version: '3'
 services:
-  peppercord:
+  coldcaller:
     image: ghcr.io/enderquestmc/coldcaller:latest
     volumes:
       - config:/app/config
