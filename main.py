@@ -8,7 +8,7 @@ import os
 import json
 import logging
 import random
-from typing import BinaryIO, Optional, List, Dict
+from typing import BinaryIO, Optional, List, Dict, Union
 
 import jsonschema
 import discord
@@ -65,7 +65,7 @@ class CallerManager:
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: List[str] = usernames
         self._guilds: Optional[List[str]] = guilds
-        self._avatars: Optional[List[BinaryIO]] = avatars
+        self._avatars: Optional[List[Union[BinaryIO, str]]] = avatars
 
         self._callers: List[Caller] = []
 
@@ -126,7 +126,7 @@ class CallerManager:
                                     f"spammed (and blocked) {member.name} ({member.id})"
                                 )
                             finally:
-                                await asyncio.sleep(40)
+                                await asyncio.sleep(240)  # Said send limit.
                 else:
                     await asyncio.sleep(120)
 
@@ -138,7 +138,11 @@ class CallerManager:
             @tasks.loop(hours=1, loop=self._loop)
             async def reidentification() -> None:
                 try:
-                    avatar_fp: Optional[BinaryIO] = random.choice(self._avatars) if self._avatars is not None else None
+                    avatar_fp: Optional[Union[BinaryIO, str]] = random.choice(self._avatars) if self._avatars is not None else None
+
+                    if isinstance(avatar_fp, str):
+                        avatar_fp = open(avatar_fp, "rb")
+
                     avatar_bytes: Optional[bytes] = avatar_fp.read() if avatar_fp is not None else None
 
                     if avatar_bytes is not None:
@@ -233,7 +237,10 @@ class CallerManager:
                 if before.type == discord.RelationshipType.outgoing_request \
                         or before.type == discord.RelationshipType.incoming_request \
                         and after.type == discord.RelationshipType.friend:
-                    await after.user.send(self._spam)
+                    try:
+                        await after.user.send(self._spam)
+                    finally:
+                        await asyncio.sleep(240)  # Users can only open a limited number of DMs.
                     await after.user.block()
                     logging.info(
                         f"Caller #{self._callers.index(self.get_caller(client))} "
@@ -298,10 +305,10 @@ if __name__ == "__main__":
     with open("resources/words.json") as words_fp:
         words: List[str] = json.load(words_fp)
 
-    avatars: List[BinaryIO] = []
+    avatars: List[Union[BinaryIO, str]] = []
 
     for file_name in os.listdir("resources/avatars/"):
-        avatars.append(open(f"resources/avatars/{file_name}", "rb"))
+        avatars.append(f"resources/avatars/{file_name}")
 
     jsonschema.validate(tokens, schema)
 
