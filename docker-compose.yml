@@ -1,7 +1,7 @@
 version: '3'
 services:
   coldcaller:
-    image: ghcr.io/enderquestmc/coldcaller:latest
+    image: ghcr.io/regulad/coldcaller:latest
     volumes:
       - config:/app/config
 volumes:
