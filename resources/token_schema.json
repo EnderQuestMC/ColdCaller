@@ -10,10 +10,13 @@
       },
       "password": {
         "type": "string"
+      },
+      "email": {
+        "type": "string"
       }
     },
     "required": [
-      "token",
+      "email",
       "password"
     ]
   }

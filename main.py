@@ -8,41 +8,55 @@ import os
 import json
 import logging
 import random
-import sys
-from typing import BinaryIO, Optional, List, Dict
+from typing import BinaryIO, Optional, List, Dict, Any
 
 import jsonschema
 import discord
 from discord.ext import tasks
+from discord.auth import Account, CaptchaSolver
 
 
 class Caller:
-    def __init__(self, client: discord.Client, token: str) -> None:
-        """Schedules a caller's execution."""
+    def __init__(self, client: discord.Client, token: Optional[str] = None,
+                 *, email: str, password: str, **kwargs) -> None:
+        """
+        Initializes a client. Any kwargs will be passed to the Account constructor, and indirectly the AuthClient.
+        """
 
         self._client: discord.Client = client
-        self._token: str = token
-        self._task: asyncio.Task = client.loop.create_task(client.start(token))
+        self._email: str = email
+        self._password: str = password
+
+        self._account: Account = Account(loop=self._client.loop, **kwargs)
+        self._cached_token: Optional[str] = token
+        self._task: Optional[asyncio.Task] = None
 
     @property
     def closed(self) -> bool:
-        return self._task.done()
+        return self._task.done() if self._task is not None else True
 
     @property
     def client(self) -> discord.Client:
         return self._client
 
     @property
-    def token(self) -> str:
-        return self._token
-
-    @property
     def task(self) -> asyncio.Task:
         return self._task
 
+    async def open(self) -> asyncio.Task:
+        """
+        Initializes the client, and logs in.
+        """
+        if self._cached_token is None:
+            await self._account.login(self._email, self._password)
+            self._cached_token = self._account.token
+        await self._client.login(self._cached_token)
+        self._task = self._client.loop.create_task(self._client.connect())
+        return self.task
+
     async def close(self) -> None:
         if self.closed:
-            raise RuntimeError("This caller has already been closed.")
+            raise RuntimeError("This caller has already been closed, or it was never opened")
         else:
             if not self._client.is_closed():
                 await self._client.close()
@@ -62,6 +76,7 @@ class CallerManager:
             avatars: List[BinaryIO] = None,
     ) -> None:
         self._closed: bool = False
+        self._started: bool = False
         self._spam: str = spam
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: List[str] = usernames
@@ -82,14 +97,19 @@ class CallerManager:
             else:
                 return None
 
-    def add_caller(self, token: str, password: str) -> Caller:  # This is all just a little bit jank.
-        """Adds a caller to the registry, and starts it.
-        This user must be verified and the password must already be set."""
+    def add_caller(self, token: Optional[str] = None, *, email: str, password: str,
+                   **kwargs) -> Caller:  # This is all just a little bit jank.
+        """
+        Adds a caller to the registry, and starts it.
+        This user's email and password must already be set.
+        Any kwargs will be passed to the Caller and Client constructor.
+        If a token is present, it will be used over the email and password.
+        """
 
         if self._closed:
             raise RuntimeError("The manager has had it's collections closed.")
         else:
-            client: discord.Client = discord.Client(loop=loop, status=discord.Status.idle)
+            client: discord.Client = discord.Client(loop=loop, status=discord.Status.idle, **kwargs)
 
             @tasks.loop(loop=self._loop)
             async def spam() -> None:
@@ -151,7 +171,7 @@ class CallerManager:
                         password=password,
                         username=(
                             (" " if random.randint(0, 100) > 20 else "-")
-                            .join(random.choice(self._usernames) for _ in range(0, random.randint(1, 2))).title()
+                                .join(random.choice(self._usernames) for _ in range(0, random.randint(1, 2))).title()
                         ),
                         avatar=avatar_bytes,
                         house=random.choice(list(discord.HypeSquadHouse))
@@ -274,7 +294,7 @@ class CallerManager:
                     finally:
                         await asyncio.sleep(20)
 
-            caller: Caller = Caller(client, token)
+            caller: Caller = Caller(client, token, email=email, password=password, **kwargs)
 
             self._callers.append(caller)
 
@@ -299,19 +319,37 @@ class CallerManager:
 
         if self._closed:
             raise RuntimeError("The manager has had it's collections closed.")
+        if not self._started:
+            raise RuntimeError("The manager has not yet started.")
         else:
             for caller in self._callers:
                 await self.remove_caller(caller)
 
-            logging.info(
-                f"{self.__class__.__name__} closed"
-            )
+            logging.info(f"{self} closed")
 
             self._closed = True
+
+    async def open(self) -> None:
+        """Opens all callers."""
+
+        if self._closed:
+            raise RuntimeError("The manager has had it's collections closed.")
+        if self._started:
+            raise RuntimeError("The manager has started.")
+        else:
+            for caller in self._callers:
+                await caller.open()
+
+            logging.info(f"{self} opened")
+
+            self._started = True
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
+    logging.getLogger("discord.gateway").setLevel(logging.ERROR)  # No spam in the console, pretty please?
+
+    in_docker: bool = os.path.exists("/.dockerenv")
 
     if not os.path.exists("config/"):
         logging.warning("Config folder is missing!")
@@ -343,12 +381,27 @@ if __name__ == "__main__":
 
     caller_manager: CallerManager = CallerManager(spam, loop, words, guilds, avatars)
 
+    # These are used in the Client and AuthClient constructors, the latter one being via the Account constructors.
+    # This is a function so it can be different for each token.
+    def get_client_assembly_kwargs(token: Dict[str, str], index: int):
+        return {
+            "captcha_handler": CaptchaSolver(discord.BrowserEnum.chrome, port=5000 + index) if not in_docker else None
+            # In case we are in a non-interactive docker session.
+        }
+
     for token in tokens:
-        caller_manager.add_caller(token["token"], token["password"])
+        index: int = tokens.index(token)
+        if token.get("token") is None:
+            caller_manager.add_caller(email=token["email"], password=token["password"],
+                                      **get_client_assembly_kwargs(token, index))
+        else:
+            caller_manager.add_caller(token["token"], email=token["email"],
+                                      password=token["password"], **get_client_assembly_kwargs(token, index))
 
     try:
         logging.info("Running...")
 
+        loop.run_until_complete(caller_manager.open())
         loop.run_forever()
     except KeyboardInterrupt:
         loop.run_until_complete(caller_manager.close())
