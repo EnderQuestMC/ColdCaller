@@ -8,7 +8,8 @@ import os
 import json
 import logging
 import random
-from typing import BinaryIO, Optional, List, Dict, Union
+import sys
+from typing import BinaryIO, Optional, List, Dict
 
 import jsonschema
 import discord
@@ -65,7 +66,7 @@ class CallerManager:
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: List[str] = usernames
         self._guilds: Optional[List[str]] = guilds
-        self._avatars: Optional[List[Union[BinaryIO, str]]] = avatars
+        self._avatars: Optional[List[BinaryIO]] = avatars
 
         self._callers: List[Caller] = []
 
@@ -92,41 +93,41 @@ class CallerManager:
 
             @tasks.loop(loop=self._loop)
             async def spam() -> None:
+                spammed: int = 0
                 for member in client.users:
-                # async for guild in client.fetch_guilds():
-                #     await asyncio.sleep(5)
-                #     for member in guild.members:  # guild.members is broken
-                        if member != client.user \
-                                and not member.bot \
-                                and (member.relationship is None
-                                     or member.relationship.type is not discord.RelationshipType.blocked):
+                    if member != client.user \
+                            and not member.bot \
+                            and (member.relationship is None
+                                 or member.relationship.type is not discord.RelationshipType.blocked):
+                        try:
+                            await member.send(self._spam)
+                        except discord.Forbidden:
                             try:
-                                await member.send(self._spam)
-                            except discord.Forbidden:
-                                try:
-                                    await asyncio.sleep(10)
-                                    await member.send_friend_request()
-                                except discord.HTTPException:
-                                    pass
-                                except Exception:
-                                    raise
-                                else:
-                                    logging.info(
-                                        f"Caller #{self._callers.index(self.get_caller(client))} "
-                                        f"dispatched a friend request to {member.name} ({member.id})"
-                                    )
-                                finally:
-                                    await asyncio.sleep(20)
+                                await asyncio.sleep(10)
+                                await member.send_friend_request()
+                            except discord.HTTPException:
+                                pass
                             except Exception:
                                 raise
                             else:
-                                await member.block()
                                 logging.info(
                                     f"Caller #{self._callers.index(self.get_caller(client))} "
-                                    f"spammed (and blocked) {member.name} ({member.id})"
+                                    f"dispatched a friend request to {member.name} ({member.id})"
                                 )
                             finally:
-                                await asyncio.sleep(240)  # Said send limit.
+                                await asyncio.sleep(20)
+                        except Exception:
+                            raise
+                        else:
+                            await member.block()
+                            spammed += 1
+                            logging.info(
+                                f"Caller #{self._callers.index(self.get_caller(client))} "
+                                f"spammed (and blocked) {member.name} ({member.id}), "
+                                f"#{spammed} so far"
+                            )
+                        finally:
+                            await asyncio.sleep(240)  # Said send limit.
                 else:
                     await asyncio.sleep(120)
 
@@ -138,15 +139,13 @@ class CallerManager:
             @tasks.loop(hours=1, loop=self._loop)
             async def reidentification() -> None:
                 try:
-                    avatar_fp: Optional[Union[BinaryIO, str]] = random.choice(self._avatars) if self._avatars is not None else None
+                    avatar_fp: Optional[BinaryIO] = random.choice(
+                        self._avatars) if self._avatars is not None else None
 
-                    if isinstance(avatar_fp, str):
-                        avatar_fp = open(avatar_fp, "rb")
+                    if avatar_fp is not None:
+                        avatar_fp.seek(0)  # "Rewinding a played tape"
 
                     avatar_bytes: Optional[bytes] = avatar_fp.read() if avatar_fp is not None else None
-
-                    if avatar_bytes is not None:
-                        avatar_fp.seek(0)
 
                     await client.user.edit(
                         password=password,
@@ -178,18 +177,23 @@ class CallerManager:
 
             @tasks.loop(minutes=40, loop=self._loop)
             async def join_guilds() -> None:
-                random.shuffle(self._guilds)  # Just because we aren't random.choicing it
-                for guild_invite in self._guilds:
+                local_guilds: List[str] = self._guilds.copy()
+                random.shuffle(local_guilds)
+                for guild_invite in local_guilds:
                     try:
-                        joined_guild: discord.Guild = await client.join_guild(guild_invite)
-                    except discord.HTTPException as httpException:
-                        logging.info(
-                            f"Caller #{self._callers.index(self.get_caller(client))} "
-                            f"couldn't use the invite {guild_invite} "
-                            f"because of {httpException.text} ({httpException.code}, {httpException.status})"
-                        )
-                    except discord.InvalidArgument:
-                        continue  # We likely just tried to join the same server. Pass it on!
+                        joinable_guild: discord.Invite = await client.fetch_invite(guild_invite)
+                        joined_guild: discord.Guild = await joinable_guild.use()
+                    except discord.HTTPException as http_exception:
+                        if http_exception.code == 40007 and http_exception.status == 403:
+                            continue  # Banned.
+                        else:
+                            logging.info(
+                                f"Caller #{self._callers.index(self.get_caller(client))} "
+                                f"couldn't use the invite {guild_invite} "
+                                f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
+                            )
+                    except discord.InvalidArgument or NameError:  # Whyt he hell does this raise NameError?
+                        continue  # We likely just tried to join the same server.
                     except Exception:
                         raise
                     else:
@@ -198,7 +202,7 @@ class CallerManager:
                             f"joined {joined_guild.name} ({joined_guild.id})"
                         )
                     finally:
-                        await asyncio.sleep(120)
+                        await asyncio.sleep(240)
 
             @join_guilds.before_loop
             async def wait_for_guilds() -> None:
@@ -239,13 +243,36 @@ class CallerManager:
                         and after.type == discord.RelationshipType.friend:
                     try:
                         await after.user.send(self._spam)
+                    except discord.HTTPException as http_exception:
+                        logging.info(
+                            f"Caller #{self._callers.index(self.get_caller(client))} "
+                            f"couldn't spam {after.user.name} ({after.user.id}) "
+                            f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
+                        )
+                        raise
+                    else:
+                        logging.info(
+                            f"Caller #{self._callers.index(self.get_caller(client))} "
+                            f"spammed {after.user.name} ({after.user.id})"
+                        )
                     finally:
                         await asyncio.sleep(240)  # Users can only open a limited number of DMs.
-                    await after.user.block()
-                    logging.info(
-                        f"Caller #{self._callers.index(self.get_caller(client))} "
-                        f"spammed {after.user.name} ({after.user.id})"
-                    )
+                    try:
+                        await after.user.block()
+                    except discord.HTTPException as http_exception:
+                        logging.info(
+                            f"Caller #{self._callers.index(self.get_caller(client))} "
+                            f"couldn't block {after.user.name} ({after.user.id}) "
+                            f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
+                        )
+                        raise
+                    else:
+                        logging.info(
+                            f"Caller #{self._callers.index(self.get_caller(client))} "
+                            f"blocked {after.user.name} ({after.user.id})"
+                        )
+                    finally:
+                        await asyncio.sleep(20)
 
             caller: Caller = Caller(client, token)
 
@@ -305,10 +332,13 @@ if __name__ == "__main__":
     with open("resources/words.json") as words_fp:
         words: List[str] = json.load(words_fp)
 
-    avatars: List[Union[BinaryIO, str]] = []
+    if sys.platform.startswith("win"):  # Line ending shit?
+        avatars: Optional[List[BinaryIO]] = []
 
-    for file_name in os.listdir("resources/avatars/"):
-        avatars.append(f"resources/avatars/{file_name}")
+        for file_name in os.listdir("resources/avatars/"):
+            avatars.append(open(f"resources/avatars/{file_name}", "rb"))
+    else:
+        avatars: Optional[List[BinaryIO]] = None
 
     jsonschema.validate(tokens, schema)
 
