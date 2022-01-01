@@ -8,7 +8,7 @@ import os
 import json
 import logging
 import random
-from typing import BinaryIO, Optional, List, Dict, Any
+from typing import BinaryIO, Optional, List, Dict, Any, Tuple
 
 import jsonschema
 import discord
@@ -73,7 +73,8 @@ class CallerManager:
             loop: asyncio.AbstractEventLoop,
             usernames: List[str],
             guilds: List[str] = None,
-            avatars: List[BinaryIO] = None,
+            avatars: List[str] = None,
+            files: List[str] = None,
     ) -> None:
         self._closed: bool = False
         self._started: bool = False
@@ -81,7 +82,8 @@ class CallerManager:
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: List[str] = usernames
         self._guilds: List[str] = guilds
-        self._avatars: List[BinaryIO] = avatars
+        self._avatars: List[str] = avatars
+        self._files: List[str] = files
 
         self._callers: List[Caller] = []
 
@@ -96,6 +98,22 @@ class CallerManager:
                     return caller
             else:
                 return None
+
+    async def _get_spam(self, client: discord.Client, spamee: discord.User) -> Tuple[List[Any], Dict[str, Any]]:
+        """
+        Gets the args and kwargs respectively for sending spam.
+        """
+        return [self._spam], {
+            "files":
+                [discord.File(
+                    open(file, "rb"),
+                    os.path.split(file)[-1]
+                )
+                 for file
+                 in self._files]
+                if self._files is not None
+                else None
+        }
 
     def add_caller(self, token: Optional[str] = None, *, email: str, password: str,
                    **kwargs) -> Caller:  # This is all just a little bit jank.
@@ -120,7 +138,8 @@ class CallerManager:
                             and (member.relationship is None
                                  or member.relationship.type is not discord.RelationshipType.blocked):
                         try:
-                            await member.send(self._spam)
+                            spam_args, spam_kwargs = await self._get_spam(client, member)
+                            await member.send(*spam_args, **spam_kwargs)
                         except discord.Forbidden:
                             try:
                                 await asyncio.sleep(10)
@@ -159,8 +178,8 @@ class CallerManager:
             @tasks.loop(hours=1, loop=self._loop)
             async def reidentification() -> None:
                 try:
-                    avatar_fp: BinaryIO = random.choice(
-                        self._avatars)
+                    avatar_fp: BinaryIO = open(random.choice(
+                        self._avatars), "rb")
 
                     if avatar_fp is not None:
                         avatar_fp.seek(0)  # "Rewinding a played tape"
@@ -212,7 +231,7 @@ class CallerManager:
                                 f"couldn't use the invite {guild_invite} "
                                 f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                             )
-                    except discord.InvalidArgument or NameError:  # Whyt he hell does this raise NameError?
+                    except discord.InvalidArgument or NameError:  # Why the hell does this raise NameError?
                         continue  # We likely just tried to join the same server.
                     except Exception:
                         raise
@@ -262,7 +281,8 @@ class CallerManager:
                         or before.type == discord.RelationshipType.incoming_request \
                         and after.type == discord.RelationshipType.friend:
                     try:
-                        await after.user.send(self._spam)
+                        spam_args, spam_kwargs = await self._get_spam(client, after.user)
+                        await after.user.send(*spam_args, **spam_kwargs)
                     except discord.HTTPException as http_exception:
                         logging.info(
                             f"Caller #{self._callers.index(self.get_caller(client))} "
@@ -270,6 +290,8 @@ class CallerManager:
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                         )
                         raise
+                    except Exception as exception:
+                        raise exception
                     else:
                         logging.info(
                             f"Caller #{self._callers.index(self.get_caller(client))} "
@@ -370,20 +392,29 @@ if __name__ == "__main__":
     with open("resources/words.json") as words_fp:
         words: List[str] = json.load(words_fp)
 
-    avatars: List[BinaryIO] = []
+    avatars: List[str] = []
 
     for file_name in os.listdir("resources/avatars/"):
-        avatars.append(open(f"resources/avatars/{file_name}", "rb"))
+        avatars.append(f"resources/avatars/{file_name}")
+
+    files: List[str] = []
+
+    if not os.path.exists("config/files/"):
+        logging.warning("Files folder is missing!")
+        os.mkdir("config/files/")
+
+    for file_name in os.listdir("config/files/"):
+        files.append(f"config/files/{file_name}")
 
     jsonschema.validate(tokens, schema)
 
     loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 
-    caller_manager: CallerManager = CallerManager(spam, loop, words, guilds, avatars)
+    caller_manager: CallerManager = CallerManager(spam, loop, words, guilds, avatars, files)
 
     # These are used in the Client and AuthClient constructors, the latter one being via the Account constructors.
     # This is a function so it can be different for each token.
-    def get_client_assembly_kwargs(token: Dict[str, str], index: int):
+    def get_client_assembly_kwargs(token: Dict[str, str], index: int) -> Dict[str, Any]:
         return {
             "captcha_handler": CaptchaSolver(discord.BrowserEnum.chrome, port=5000 + index) if not in_docker else None
             # In case we are in a non-interactive docker session.
