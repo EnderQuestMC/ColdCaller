@@ -58,15 +58,15 @@ class CallerManager:
             spam: str,
             loop: asyncio.AbstractEventLoop,
             usernames: List[str],
-            guilds: Optional[List[str]] = None,
-            avatars: Optional[List[BinaryIO]] = None,
+            guilds: List[str] = None,
+            avatars: List[BinaryIO] = None,
     ) -> None:
         self._closed: bool = False
         self._spam: str = spam
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: List[str] = usernames
-        self._guilds: Optional[List[str]] = guilds
-        self._avatars: Optional[List[BinaryIO]] = avatars
+        self._guilds: List[str] = guilds
+        self._avatars: List[BinaryIO] = avatars
 
         self._callers: List[Caller] = []
 
@@ -139,13 +139,13 @@ class CallerManager:
             @tasks.loop(hours=1, loop=self._loop)
             async def reidentification() -> None:
                 try:
-                    avatar_fp: Optional[BinaryIO] = random.choice(
-                        self._avatars) if self._avatars is not None else None
+                    avatar_fp: BinaryIO = random.choice(
+                        self._avatars)
 
                     if avatar_fp is not None:
                         avatar_fp.seek(0)  # "Rewinding a played tape"
 
-                    avatar_bytes: Optional[bytes] = avatar_fp.read() if avatar_fp is not None else None
+                    avatar_bytes: bytes = avatar_fp.read() if avatar_fp is not None else None
 
                     await client.user.edit(
                         password=password,
@@ -332,13 +332,10 @@ if __name__ == "__main__":
     with open("resources/words.json") as words_fp:
         words: List[str] = json.load(words_fp)
 
-    if sys.platform.startswith("win"):  # Line ending shit?
-        avatars: Optional[List[BinaryIO]] = []
+    avatars: List[BinaryIO] = []
 
-        for file_name in os.listdir("resources/avatars/"):
-            avatars.append(open(f"resources/avatars/{file_name}", "rb"))
-    else:
-        avatars: Optional[List[BinaryIO]] = None
+    for file_name in os.listdir("resources/avatars/"):
+        avatars.append(open(f"resources/avatars/{file_name}", "rb"))
 
     jsonschema.validate(tokens, schema)
 
