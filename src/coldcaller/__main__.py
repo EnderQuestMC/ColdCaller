@@ -10,6 +10,7 @@ import os
 from typing import Optional, List, Dict, Any
 
 import discord
+import dislog
 import jsonschema
 from discord.auth import Account
 
@@ -47,6 +48,7 @@ def main() -> None:
                         help="Does not reidentify the spammers.")
     parser.add_argument("--no-join", "-j", dest="join", default=False, const=True, action='store_const',
                         help="Does not join any new guilds.")
+    parser.add_argument("--webhook", "-w", dest="webhook", help="A webhook url to log to.")
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -61,6 +63,9 @@ def main() -> None:
     logging.basicConfig(level=get_logging_level(args.loglevel),
                         format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
     logging.getLogger("discord.gateway").setLevel(logging.ERROR)  # No spam in the console, pretty please?
+
+    if args.webhook:
+        logging.root.addHandler(dislog.DiscordWebhookHandler(args.webhook))
 
     in_docker: bool = os.path.exists("/.dockerenv")
 
