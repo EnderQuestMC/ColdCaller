@@ -10,6 +10,6 @@ WORKDIR /app
 
 COPY . .
 
-RUN "pip install ."
+RUN pip install .
 
-CMD [ "python -m coldcaller"]
+CMD [ "python", "-m", "coldcaller" ]
