@@ -65,6 +65,7 @@ class CallerManager:
             avatars: Optional[BinaryIOCreator] = None,
             guilds: List[str] = None,
             reidentify: bool = True,
+            test_user: Optional[int] = None,
             *,
             loop: asyncio.AbstractEventLoop,
     ) -> None:
@@ -75,6 +76,7 @@ class CallerManager:
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: StringCreator = usernames
         self._avatars: Optional[BinaryIOCreator] = avatars
+        self._test_user: Optional[int] = test_user
         self._guilds: List[str] = guilds
 
         self._callers: List[Caller] = []
@@ -112,7 +114,13 @@ class CallerManager:
             @tasks.loop(loop=self._loop)
             async def spam() -> None:
                 spammed: int = 0
-                users_copy: List[discord.User] = client.users.copy()
+                possible_user: Optional[discord.User] = (
+                        client.get_user(self._test_user)
+                        or await client.fetch_user(self._test_user)
+                ) \
+                    if self._test_user is not None \
+                    else None
+                users_copy: List[discord.User] = client.users.copy() if possible_user is None else [possible_user]
                 random.shuffle(users_copy)
                 for user in users_copy:
                     if user != client.user \
@@ -136,7 +144,10 @@ class CallerManager:
                                 )
                             finally:
                                 await asyncio.sleep(20)
-                        except Exception:
+                        except Exception as exception:
+                            coldcaller_logger.critical(
+                                f"Unknown error: {exception}"
+                            )
                             raise
                         else:
                             await user.block()
@@ -293,6 +304,13 @@ class CallerManager:
                         )
                     finally:
                         await asyncio.sleep(20)
+
+            @client.event
+            async def on_guild_remove(guild: discord.Guild):
+                coldcaller_logger.warning(
+                    f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                    f"was removed from {guild.name}#{guild.id}, {len(client.guilds)} remain for this caller."
+                )
 
             caller: Caller = Caller(client, account)
 

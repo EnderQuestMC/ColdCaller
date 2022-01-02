@@ -11,6 +11,7 @@ It can create accounts, but these accounts must currently have a verified phone 
 * `message.md`: The message to send to a user after obtaining the ability to message them. Note that this is not full
   markdown because of missing features on discord. Required.
 * `tokens.json`: A JSON array of emails and passwords. Optional. Fresh accounts will be added to this.
+* `embed.json`: A embed to send, in JSON form.
 * `files`: Any files in the files folder will be attached to the message the bot sends.
 
 If you are running in a non-interactive, like docker, or if you don't want to pass a captcha, you must define a token

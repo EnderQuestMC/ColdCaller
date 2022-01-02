@@ -49,6 +49,8 @@ def main() -> None:
     parser.add_argument("--no-join", "-j", dest="join", default=False, const=True, action='store_const',
                         help="Does not join any new guilds.")
     parser.add_argument("--webhook", "-w", dest="webhook", help="A webhook url to log to.")
+    parser.add_argument("--test-user", "-t", dest="test_user", type=int,
+                        help="The id of a user to spam, instead of the normal process.")
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -111,13 +113,18 @@ def main() -> None:
     # Load config
 
     files: List[str] = []
+    embeds: List[dict] = []
 
     if not os.path.exists(os.path.join("config")):
         logging.warning("Config folder is missing!")
         os.mkdir(os.path.join("config"))
 
+    if not os.path.exists(os.path.join("config", "files")):
+        os.mkdir(os.path.join("config", "files"))
+
     for file_name in os.listdir(os.path.join("config", "files")):
         files.append(os.path.join("config", "files", file_name))
+
 
     message: Optional[str] = args.message
 
@@ -125,7 +132,14 @@ def main() -> None:
         with open(os.path.join("config", "message.md")) as message_fp:
             message: str = message_fp.read()
 
-    messsage_kwarg_creator: SpamMessageKwargCreator = SpamMessageKwargCreator(message, files)
+    embed: Optional[dict] = None
+
+    if os.path.exists(os.path.join("config", "embed.json")):
+        with open(os.path.join("config", "embed.json")) as embed_fp:
+            embed = json.load(embed_fp)
+
+    messsage_kwarg_creator: SpamMessageKwargCreator = SpamMessageKwargCreator(message, files, embed)
+
 
     # Load existing tokens
 
@@ -237,6 +251,7 @@ def main() -> None:
             avatar_creator,
             guilds if not args.join else [],
             not args.reidentify,
+            args.test_user if args.test_user else None,
             loop=loop
         )
 

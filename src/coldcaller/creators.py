@@ -36,20 +36,23 @@ class SpamMessageKwargCreator(MessageKwargCreator):
     Gets the args and kwargs respectively for sending spam.
     """
 
-    def __init__(self, message: str, filenames: Optional[List[str]] = None) -> None:
+    def __init__(self, message: str, filenames: Optional[List[str]] = None,
+                 embed: Optional[dict] = None) -> None:
         self._message: str = message
         self._filenames: List[str] = filenames or []
+        self._embed: Optional[dict] = embed
 
     async def get(self, client: discord.Client, spamee: discord.User) -> Dict[str, Any]:
         return {
-            "content": self._message,
+            "content": self._message.format(spamee=spamee, spamer=client.user),
             "files":
                 [discord.File(
                     open(file, "rb"),
                     os.path.split(file)[-1]
                 )
                     for file
-                    in self._filenames]
+                    in self._filenames],
+            "embed": discord.Embed.from_dict(self._embed) if self._embed is not None else None
         }
 
 
