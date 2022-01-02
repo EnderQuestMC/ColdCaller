@@ -4,7 +4,6 @@ from typing import Dict, Any, Optional
 from typing import List
 
 from discord.auth import EmailHandler, TempMailWrapper, Account
-from discord import AuthFailure
 
 from .creators import *
 
