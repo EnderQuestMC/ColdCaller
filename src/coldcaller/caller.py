@@ -15,7 +15,7 @@ coldcaller_logger: logging.Logger = logging.getLogger(__name__)
 
 class Caller:
     def __init__(self, client: discord.Client, account: Account,
-                 loop: Optional[asyncio.AbstractEventLoop] = None, **kwargs) -> None:
+                 loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         """
         Initializes a client. Any kwargs will be passed to the Account constructor, and indirectly the AuthClient.
         """
@@ -294,7 +294,7 @@ class CallerManager:
                     finally:
                         await asyncio.sleep(20)
 
-            caller: Caller = Caller(client, account, **kwargs)
+            caller: Caller = Caller(client, account)
 
             self._callers.append(caller)
 
