@@ -25,8 +25,8 @@ def main() -> None:
     parser.add_argument("--create", "-c", dest="create", type=int, help="Creates x users")
     parser.add_argument("--browser", "-b", dest="browser", type=str, help="The browser to use for the captcha. "
                                                                           "Example: chrome, edge")
-    parser.add_argument("--create-only", "-o", dest="create_only", default=False, const=True, action='store_const',
-                        help="Doesn't spam, only creates users.")
+    parser.add_argument("--no-spam", "-o", dest="no_spam", default=False, const=True, action='store_const',
+                        help="Doesn't scam any users, only does the other tasks.")
     parser.add_argument("--save", "-s", dest="save_users", default=False, const=True, action='store_const',
                         help="If the accounts created should be saved into the configuration, "
                              "or if they should be saved into a new file.")
@@ -39,7 +39,10 @@ def main() -> None:
                              "http://your_user:your_password@your_proxy_url:your_proxy_port")
     parser.add_argument("--unblock", "-u", dest="unblock", default=False, const=True, action='store_const',
                         help="Unblocks all accounts as all users.")
-
+    parser.add_argument("--verify", "-v", dest="verify", default=False, const=True, action='store_const',
+                        help="Verifies all accounts are in good standing.")
+    parser.add_argument("--leave", "-e", dest="leave", default=False, const=True, action='store_const',
+                        help="Leaves/exits all guilds.")
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -51,7 +54,8 @@ def main() -> None:
 
     loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 
-    logging.basicConfig(level=get_logging_level(args.loglevel), format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
+    logging.basicConfig(level=get_logging_level(args.loglevel),
+                        format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
     logging.getLogger("discord.gateway").setLevel(logging.ERROR)  # No spam in the console, pretty please?
 
     in_docker: bool = os.path.exists("/.dockerenv")
@@ -121,20 +125,10 @@ def main() -> None:
 
     jsonschema.validate(tokens, token_schema)
 
-    for token in tokens:
-        auth_token: Optional[str] = token.get("token")
-        email: str = token["email"]
-        password: str = token["password"]
+    account_tasks: List[asyncio.Task] = []
 
-        account: Account = loop.run_until_complete(
-            account_creator.create_account(
-                *(
-                    [auth_token]
-                    if auth_token is not None
-                    else [email, password]
-                )
-            )
-        )
+    async def load_account(account_creator_coro) -> None:
+        account: Account = await account_creator_coro
 
         if auth_token is not None:
             # Some fields may never be populated.
@@ -143,11 +137,39 @@ def main() -> None:
 
         accounts.append(account)
 
+    for token in tokens:
+        auth_token: Optional[str] = token.get("token")
+        email: str = token["email"]
+        password: str = token["password"]
+
+        account_task: asyncio.Task = loop.create_task(
+            load_account(
+                account_creator.create_account(
+                    *(
+                        [auth_token]
+                        if auth_token is not None
+                        else [email, password]
+                    )
+                )
+            )
+        )
+
+        account_tasks.append(account_task)
+
+    for account_task in account_tasks:
+        loop.run_until_complete(account_task)  # This can possibly be done better
+
     # Branching
 
     if args.unblock:
         loop.run_until_complete(unblock_all_as_all(accounts.copy(), loop=loop, **constructor_kwargs))
-        exit(0)
+
+    if args.verify:
+        loop.run_until_complete(verify_all(accounts.copy(), guilds[0] if args.invites else None,
+                                           loop=loop, **constructor_kwargs))
+
+    if args.leave:
+        loop.run_until_complete(leave_all_as_all(accounts.copy(), loop=loop, **constructor_kwargs))
 
     if args.create:
         amount: int = args.create
@@ -171,11 +193,9 @@ def main() -> None:
                 except Exception:
                     raise
                 else:
-                    if await async_test_if_account_is_in_good_standing(account, loop=loop):
-                        logging.error(f"{account.email} is in good standing!")
+                    if await verify_account(account, loop=loop):
                         new_accounts.append(account)
                     else:
-                        logging.error(f"{account.email} is not in good standing!")
                         continue
                 if index != amount - 1:  # Don't bother if we are about to do something else
                     await asyncio.sleep(90)
@@ -199,7 +219,7 @@ def main() -> None:
 
         with open(os.path.join("config" if args.save_users else "output", "tokens.json"), "w") as output_fp:
             json.dump(output_json, output_fp, indent=4, sort_keys=True)
-    if not args.create_only:
+    if not args.no_spam:
         # Setup CallerManager
 
         caller_manager: CallerManager = CallerManager(

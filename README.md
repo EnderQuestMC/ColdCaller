@@ -18,6 +18,7 @@ in `tokens.json` instead of just defining an email and password.
 
 ### CLI
 
-You can also use it entirely from the command line. Simply install  `pipx` using ```pip install pipx```, the do `pipx install .` in the cloned repo.
+You can also use it entirely from the command line. Simply install  `pipx` using ```pip install pipx```, the
+do `pipx install .` in the cloned repo.
 
 You can see help with `coldcaller -h`.
