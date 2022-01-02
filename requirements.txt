@@ -1,4 +1,4 @@
-discord.py-self[voice]@git+https://github.com/regulad/discord.py-self.git@backports/fix/ext
+discord.py-self[voice]@git+https://github.com/regulad/discord.py-self.git@add/register
 jsonschema
 #d.py-self needs this for captcha handling
 flask[async]

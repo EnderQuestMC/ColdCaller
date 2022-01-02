@@ -2,33 +2,174 @@
 ColdCaller
 https://github.com/EnderQuestMC/ColdCaller
 """
-
+import abc
 import asyncio
 import os
 import json
 import logging
 import random
-from typing import BinaryIO, Optional, List, Dict, Any, Tuple
+import string
+from typing import BinaryIO, Optional, List, Dict, Any, Tuple, cast
 
 import jsonschema
 import discord
 from discord.ext import tasks
-from discord.auth import Account, CaptchaSolver
+from discord.auth import Account, CaptchaSolver, TempMailWrapper, EmailHandler, CaptchaHandler
+
+
+class Creator(abc.ABC):
+    """
+    A utility class to get something.
+    """
+
+    def get(self) -> Any:
+        raise NotImplementedError
+
+
+class KwargCreator(Creator, abc.ABC):
+    def get(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class MessageKwargCreator(abc.ABC):
+    """
+    A utility class for getting message kwargs
+    """
+
+    async def get(self, client: discord.Client, spamee: discord.User) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class SpamMessageKwargCreator(MessageKwargCreator):
+    """
+    Gets the args and kwargs respectively for sending spam.
+    """
+
+    def __init__(self, message: str, filenames: Optional[List[str]] = None) -> None:
+        self._message: str = message
+        self._filenames: List[str] = filenames or []
+
+    async def get(self, client: discord.Client, spamee: discord.User) -> Dict[str, Any]:
+        return {
+            "content"
+            "files":
+                [discord.File(
+                    open(file, "rb"),
+                    os.path.split(file)[-1]
+                )
+                 for file
+                 in self._filenames]
+        }
+
+
+class BinaryIOCreator(Creator, abc.ABC):
+    def get(self) -> BinaryIO:
+        raise NotImplementedError
+
+
+class RandomFileGetter(BinaryIOCreator):
+    def __init__(self, paths: List[str]) -> None:
+        self._paths = paths
+
+    def get(self) -> BinaryIO:
+        return open(random.choice(self._paths), "rb")
+
+
+class IntCreator(Creator, abc.ABC):
+    def get(self) -> int:
+        raise NotImplementedError
+
+
+class OneOfAKindIntCreator(IntCreator):
+    """
+    Gets a random int from a list, and keeps going until all ints on that list are exhausted.
+    """
+
+    def __init__(self, possible_ints: Optional[List[int]] = None, rollover: bool = True):
+        self._possible_ints: List[int] = possible_ints if possible_ints is not None else list(range(8000, 25565))
+        self._exhausted_ints: List[int] = []
+        self._rollover: bool = rollover
+
+    def release_exhausted(self) -> None:
+        self._exhausted_ints.clear()
+
+    def get(self) -> int:
+        possible_copy: List[int] = self._possible_ints.copy()
+        random.shuffle(possible_copy)
+        for working_int in possible_copy:
+            if working_int in self._exhausted_ints:
+                continue
+            else:
+                self._exhausted_ints.append(working_int)
+                return working_int
+        else:
+            if self._rollover:
+                self.release_exhausted()
+                return self.get()
+            else:
+                raise RuntimeError("Exhausted int supply.")
+
+
+class CaptchaHandlerCreator(Creator, abc.ABC):
+    def get(self) -> CaptchaHandler:
+        raise NotImplementedError
+
+
+class RandomPortCaptchaSolverCreator(CaptchaHandlerCreator):
+    def __init__(self, browser: discord.BrowserEnum, port_creator: IntCreator = OneOfAKindIntCreator(),
+                 **handler_kwargs) -> None:
+        self._browser: discord.BrowserEnum = browser
+        self._port_creator: IntCreator = port_creator
+        self._handler_kwargs: Dict[str, Any] = handler_kwargs
+
+    def get(self) -> CaptchaHandler:
+        kwargs_copy: Dict[str, Any] = self._handler_kwargs.copy()
+
+        if kwargs_copy.get("port") is None:
+            kwargs_copy["port"] = self._port_creator.get()
+        if kwargs_copy.get("browser") is None:
+            kwargs_copy["browser"] = self._browser
+
+        return CaptchaSolver(**kwargs_copy)
+
+
+class StringCreator(Creator, abc.ABC):
+    """
+    A utility class to get things like usernames or passwords.
+    """
+
+    def get(self) -> str:
+        raise NotImplementedError
+
+
+class PasswordCreator(StringCreator):
+    def __init__(self,
+                 password_characters: List[str] = string.ascii_letters + string.digits + string.punctuation) -> None:
+        self._password_characters: List[str] = password_characters
+
+    def get(self) -> str:
+        return "".join(random.choice(self._password_characters) for i in range(10))
+
+
+class WordUsernameCreator(StringCreator):
+    def __init__(self, username_words: List[str]) -> None:
+        self._username_words: List[str] = username_words
+
+    def get(self) -> str:
+        return (
+            (" " if random.randint(0, 100) > 20 else "-")
+            .join(random.choice(self._username_words) for _ in range(0, random.randint(1, 2))).title()
+        )
 
 
 class Caller:
-    def __init__(self, client: discord.Client, token: Optional[str] = None,
-                 *, email: str, password: str, **kwargs) -> None:
+    def __init__(self, client: discord.Client, account: Account) -> None:
         """
         Initializes a client. Any kwargs will be passed to the Account constructor, and indirectly the AuthClient.
         """
 
         self._client: discord.Client = client
-        self._email: str = email
-        self._password: str = password
-
-        self._account: Account = Account(loop=self._client.loop, **kwargs)
-        self._cached_token: Optional[str] = token
+        self._account: Account = account
         self._task: Optional[asyncio.Task] = None
 
     @property
@@ -47,10 +188,7 @@ class Caller:
         """
         Initializes the client, and logs in.
         """
-        if self._cached_token is None:
-            await self._account.login(self._email, self._password)
-            self._cached_token = self._account.token
-        await self._client.login(self._cached_token)
+        await self._client.login(self._account.token)
         self._task = self._client.loop.create_task(self._client.connect())
         return self.task
 
@@ -69,21 +207,20 @@ class CallerManager:
 
     def __init__(
             self,
-            spam: str,
-            loop: asyncio.AbstractEventLoop,
-            usernames: List[str],
+            spam: MessageKwargCreator,
+            usernames: StringCreator,
+            avatars: Optional[BinaryIOCreator] = None,
             guilds: List[str] = None,
-            avatars: List[str] = None,
-            files: List[str] = None,
+            *,
+            loop: asyncio.AbstractEventLoop,
     ) -> None:
         self._closed: bool = False
         self._started: bool = False
-        self._spam: str = spam
+        self._spam: MessageKwargCreator = spam
         self._loop: asyncio.AbstractEventLoop = loop
-        self._usernames: List[str] = usernames
+        self._usernames: StringCreator = usernames
+        self._avatars: Optional[BinaryIOCreator] = avatars
         self._guilds: List[str] = guilds
-        self._avatars: List[str] = avatars
-        self._files: List[str] = files
 
         self._callers: List[Caller] = []
 
@@ -99,24 +236,7 @@ class CallerManager:
             else:
                 return None
 
-    async def _get_spam(self, client: discord.Client, spamee: discord.User) -> Tuple[List[Any], Dict[str, Any]]:
-        """
-        Gets the args and kwargs respectively for sending spam.
-        """
-        return [self._spam], {
-            "files":
-                [discord.File(
-                    open(file, "rb"),
-                    os.path.split(file)[-1]
-                )
-                 for file
-                 in self._files]
-                if self._files is not None
-                else None
-        }
-
-    def add_caller(self, token: Optional[str] = None, *, email: str, password: str,
-                   **kwargs) -> Caller:  # This is all just a little bit jank.
+    def add_caller(self, account: Account, client: Optional[discord.Client] = None, **kwargs) -> Caller:
         """
         Adds a caller to the registry, and starts it.
         This user's email and password must already be set.
@@ -127,7 +247,7 @@ class CallerManager:
         if self._closed:
             raise RuntimeError("The manager has had it's collections closed.")
         else:
-            client: discord.Client = discord.Client(loop=loop, status=discord.Status.idle, **kwargs)
+            client: discord.Client = client or discord.Client(loop=loop, status=discord.Status.idle, **kwargs)
 
             @tasks.loop(loop=self._loop)
             async def spam() -> None:
@@ -138,8 +258,7 @@ class CallerManager:
                             and (member.relationship is None
                                  or member.relationship.type is not discord.RelationshipType.blocked):
                         try:
-                            spam_args, spam_kwargs = await self._get_spam(client, member)
-                            await member.send(*spam_args, **spam_kwargs)
+                            await member.send(**await self._spam.get(client, member))
                         except discord.Forbidden:
                             try:
                                 await asyncio.sleep(10)
@@ -178,8 +297,7 @@ class CallerManager:
             @tasks.loop(hours=1, loop=self._loop)
             async def reidentification() -> None:
                 try:
-                    avatar_fp: BinaryIO = open(random.choice(
-                        self._avatars), "rb")
+                    avatar_fp: Optional[BinaryIO] = self._avatars.get() if self._avatars is not None else None
 
                     if avatar_fp is not None:
                         avatar_fp.seek(0)  # "Rewinding a played tape"
@@ -187,11 +305,8 @@ class CallerManager:
                     avatar_bytes: bytes = avatar_fp.read() if avatar_fp is not None else None
 
                     await client.user.edit(
-                        password=password,
-                        username=(
-                            (" " if random.randint(0, 100) > 20 else "-")
-                                .join(random.choice(self._usernames) for _ in range(0, random.randint(1, 2))).title()
-                        ),
+                        password=account.password,
+                        username=self._usernames.get(),
                         avatar=avatar_bytes,
                         house=random.choice(list(discord.HypeSquadHouse))
                     )
@@ -281,8 +396,7 @@ class CallerManager:
                         or before.type == discord.RelationshipType.incoming_request \
                         and after.type == discord.RelationshipType.friend:
                     try:
-                        spam_args, spam_kwargs = await self._get_spam(client, after.user)
-                        await after.user.send(*spam_args, **spam_kwargs)
+                        await after.user.send(**await self._spam.get(client, after.user))
                     except discord.HTTPException as http_exception:
                         logging.info(
                             f"Caller #{self._callers.index(self.get_caller(client))} "
@@ -316,7 +430,7 @@ class CallerManager:
                     finally:
                         await asyncio.sleep(20)
 
-            caller: Caller = Caller(client, token, email=email, password=password, **kwargs)
+            caller: Caller = Caller(client, account, **kwargs)
 
             self._callers.append(caller)
 
@@ -367,21 +481,68 @@ class CallerManager:
             self._started = True
 
 
+class AccountCreator:
+    """A class that wraps the ability to create users."""
+
+    def __init__(self, username_creator: StringCreator, handler_creator: Optional[CaptchaHandlerCreator] = None,
+                 password_creator: StringCreator = PasswordCreator(), email_handler: EmailHandler = TempMailWrapper(),
+                 loop: Optional[asyncio.AbstractEventLoop] = None, **extra_kwargs) -> None:
+        self._username_creator: StringCreator = username_creator
+        self._handler_creator: Optional[CaptchaHandlerCreator] = handler_creator
+        self._password_creator: StringCreator = password_creator
+        self._email_handler: EmailHandler = email_handler
+        self._loop: Optional[asyncio.AbstractEventLoop] = loop
+        self._extra_kwargs: Dict[str, Any] = extra_kwargs
+
+    async def create_account(self, *args, **kwargs) -> Account:
+        """
+        Creates an account.
+        Args will be used to log in, if any.
+        Any kwargs will be passed to the account constructor.
+        """
+
+        kwargs_copy: Dict[str, Any] = self._extra_kwargs.copy()
+        kwargs_copy.update(kwargs)
+
+        if kwargs_copy.get("loop") is None and self._loop is not None:
+            kwargs_copy["loop"] = self._loop
+
+        if kwargs_copy.get("captcha_handler") is None and self._handler_creator is not None:
+            kwargs_copy["captcha_handler"] = self._handler_creator.get()
+
+        if kwargs_copy.get("email_handler") is None:
+            kwargs_copy["email_handler"] = self._email_handler
+
+        account: Account = Account(**kwargs_copy)
+
+        if args:
+            await account.login(*args)
+            return account
+        else:
+            await account.register(self._username_creator.get(), self._password_creator.get())
+            return account
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
     logging.getLogger("discord.gateway").setLevel(logging.ERROR)  # No spam in the console, pretty please?
 
     in_docker: bool = os.path.exists("/.dockerenv")
 
+    accounts: List[Account] = []
+
+    loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+
+    # Create Folders
+
     if not os.path.exists("config/"):
         logging.warning("Config folder is missing!")
         os.mkdir("config/")
 
-    with open("config/message.md") as message_fp:
-        spam: str = message_fp.read()
+    if not os.path.exists("temp/"):
+        os.mkdir("temp/")
 
-    with open("config/tokens.json") as tokens_fp:
-        tokens: List[Dict[str, str]] = json.load(tokens_fp)
+    # Resources
 
     with open("resources/token_schema.json") as schema_fp:
         schema: dict = json.load(schema_fp)
@@ -392,10 +553,24 @@ if __name__ == "__main__":
     with open("resources/words.json") as words_fp:
         words: List[str] = json.load(words_fp)
 
+    words_username_creator: WordUsernameCreator = WordUsernameCreator(words)
+
     avatars: List[str] = []
 
     for file_name in os.listdir("resources/avatars/"):
         avatars.append(f"resources/avatars/{file_name}")
+
+    avatar_creator: RandomFileGetter = RandomFileGetter(avatars)
+
+    # Setup AccountCreator
+
+    account_creator: AccountCreator = AccountCreator(
+        words_username_creator,
+        RandomPortCaptchaSolverCreator(discord.BrowserEnum.chrome) if not in_docker else None
+        # TODO: dynamic browser enum
+    )
+
+    # Load config
 
     files: List[str] = []
 
@@ -406,28 +581,59 @@ if __name__ == "__main__":
     for file_name in os.listdir("config/files/"):
         files.append(f"config/files/{file_name}")
 
+    with open("config/message.md") as message_fp:
+        spam: str = message_fp.read()
+
+    messsage_kwarg_creator: SpamMessageKwargCreator = SpamMessageKwargCreator(spam, files)
+
+    # Load existing tokens
+
+    with open("config/tokens.json") as tokens_fp:
+        tokens: List[Dict[str, str]] = json.load(tokens_fp)
+
+    with open("resources/token_schema.json") as schema_fp:
+        schema: dict = json.load(schema_fp)
+
     jsonschema.validate(tokens, schema)
 
-    loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
-
-    caller_manager: CallerManager = CallerManager(spam, loop, words, guilds, avatars, files)
-
-    # These are used in the Client and AuthClient constructors, the latter one being via the Account constructors.
-    # This is a function so it can be different for each token.
-    def get_client_assembly_kwargs(token: Dict[str, str], index: int) -> Dict[str, Any]:
-        return {
-            "captcha_handler": CaptchaSolver(discord.BrowserEnum.chrome, port=5000 + index) if not in_docker else None
-            # In case we are in a non-interactive docker session.
-        }
-
     for token in tokens:
-        index: int = tokens.index(token)
-        if token.get("token") is None:
-            caller_manager.add_caller(email=token["email"], password=token["password"],
-                                      **get_client_assembly_kwargs(token, index))
-        else:
-            caller_manager.add_caller(token["token"], email=token["email"],
-                                      password=token["password"], **get_client_assembly_kwargs(token, index))
+        auth_token: Optional[str] = token.get("token")
+        email: str = token["email"]
+        password: str = token["password"]
+
+        account: Account = loop.run_until_complete(
+            account_creator.create_account(
+                *(
+                    [auth_token]
+                    if auth_token is not None
+                    else [email, password]
+                )
+            )
+        )
+
+        if auth_token is not None:
+            # Some fields may never be populated.
+            if account.password is None:
+                account.password = password
+
+        accounts.append(account)
+
+    # Setup CallerManager
+
+    caller_manager: CallerManager = CallerManager(
+        messsage_kwarg_creator,
+        words_username_creator,
+        avatar_creator,
+        guilds,
+        loop=loop
+    )
+
+    for account in accounts:
+        caller_manager.add_caller(account)
+
+    # TODO: make a task to create accounts
+
+    # Run
 
     try:
         logging.info("Running...")
