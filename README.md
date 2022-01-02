@@ -9,6 +9,7 @@ At the moment, it can only use predefined users. In the future, it will create u
 ### Environment variables
 
 * `COLDCALLER_MAX_USERS`: The maximum amount of users to create. Defaults to `-1`, which is no limit.
+* `COLDCALLER_SERVER_INVITES`: A comma seperated list of invites to use to join servers. Example: `Oneshot,hypixel`
 
 ### Files in `config/`
 

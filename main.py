@@ -547,8 +547,11 @@ if __name__ == "__main__":
     with open("resources/token_schema.json") as schema_fp:
         schema: dict = json.load(schema_fp)
 
-    with open("resources/guilds.json") as guilds_fp:
-        guilds: List[str] = json.load(guilds_fp)
+    guilds: List[str] = os.environ.get("COLDCALLER_SERVER_INVITES", "").split(",")
+
+    if len(guilds) == 0:
+        with open("resources/guilds.json") as guilds_fp:
+            guilds.extend(json.load(guilds_fp))
 
     with open("resources/words.json") as words_fp:
         words: List[str] = json.load(words_fp)
