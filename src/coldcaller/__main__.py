@@ -37,6 +37,8 @@ def main() -> None:
     parser.add_argument("--proxy", "-p", dest="proxy",
                         help="Adds a proxy in the format of "
                              "http://your_user:your_password@your_proxy_url:your_proxy_port")
+    parser.add_argument("--unblock", "-u", dest="unblock", default=False, const=True, action='store_const',
+                        help="Unblocks all accounts as all users.")
 
 
     args: argparse.Namespace = parser.parse_args()
@@ -101,7 +103,7 @@ def main() -> None:
         logging.warning("Config folder is missing!")
         os.mkdir(os.path.join("config"))
 
-    for file_name in os.listdir(os.path.join("config")):
+    for file_name in os.listdir(os.path.join("config", "files")):
         files.append(os.path.join("config", "files", file_name))
 
     message: Optional[str] = args.message
@@ -142,6 +144,10 @@ def main() -> None:
         accounts.append(account)
 
     # Branching
+
+    if args.unblock:
+        loop.run_until_complete(unblock_all_as_all(accounts.copy(), loop=loop, **constructor_kwargs))
+        exit(0)
 
     if args.create:
         amount: int = args.create
