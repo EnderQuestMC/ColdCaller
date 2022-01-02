@@ -133,6 +133,9 @@ config/
 # Temp
 temp/
 
+# Output
+output/
+
 # Black
 *.bak
 

@@ -13,4 +13,6 @@ RUN pip3 install -r requirements.txt
 
 COPY . .
 
-CMD [ "python", "./main.py"]
+RUN "pip install ."
+
+CMD [ "python -m coldcaller"]
