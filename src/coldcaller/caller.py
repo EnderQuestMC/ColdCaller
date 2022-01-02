@@ -199,7 +199,7 @@ class CallerManager:
                         if http_exception.code == 40007 and http_exception.status == 403:
                             continue  # Banned.
                         else:
-                            coldcaller_logger.info(
+                            coldcaller_logger.warning(
                                 f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
                                 f"couldn't use the invite {guild_invite} "
                                 f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
@@ -256,7 +256,7 @@ class CallerManager:
                     try:
                         await after.user.send(**await self._spam.get(client, after.user))
                     except discord.HTTPException as http_exception:
-                        coldcaller_logger.info(
+                        coldcaller_logger.warning(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
                             f"couldn't spam {after.user.name} ({after.user.id}) "
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
@@ -274,7 +274,7 @@ class CallerManager:
                     try:
                         await after.user.block()
                     except discord.HTTPException as http_exception:
-                        coldcaller_logger.info(
+                        coldcaller_logger.warning(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
                             f"couldn't block {after.user.name} ({after.user.id}) "
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
@@ -303,7 +303,7 @@ class CallerManager:
             await caller.close()
 
             coldcaller_logger.info(
-                f"Caller #{self._callers.index(caller)} closed."
+                f"Caller #{self._callers.index(caller) + 1} closed."
             )
 
             del self._callers[self._callers.index(caller)]
