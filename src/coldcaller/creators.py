@@ -42,7 +42,7 @@ class SpamMessageKwargCreator(MessageKwargCreator):
 
     async def get(self, client: discord.Client, spamee: discord.User) -> Dict[str, Any]:
         return {
-            "content"
+            "content": self._message,
             "files":
                 [discord.File(
                     open(file, "rb"),
