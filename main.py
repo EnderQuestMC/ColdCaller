@@ -1,6 +1,6 @@
 """
 ColdCaller
-https://github.com/EnderQuestMC/ColdCaller
+https://github.com/regulad/ColdCaller
 """
 import abc
 import asyncio
