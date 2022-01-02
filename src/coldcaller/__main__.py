@@ -43,6 +43,10 @@ def main() -> None:
                         help="Verifies all accounts are in good standing.")
     parser.add_argument("--leave", "-e", dest="leave", default=False, const=True, action='store_const',
                         help="Leaves/exits all guilds.")
+    parser.add_argument("--no-reidentify", "-r", dest="reidentify", default=False, const=True, action='store_const',
+                        help="Does not reidentify the spammers.")
+    parser.add_argument("--no-join", "-j", dest="join", default=False, const=True, action='store_const',
+                        help="Does not join any new guilds.")
 
     args: argparse.Namespace = parser.parse_args()
 
@@ -226,7 +230,8 @@ def main() -> None:
             messsage_kwarg_creator,
             words_username_creator,
             avatar_creator,
-            guilds,
+            guilds if not args.join else [],
+            not args.reidentify,
             loop=loop
         )
 

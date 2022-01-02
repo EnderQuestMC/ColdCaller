@@ -64,11 +64,13 @@ class CallerManager:
             usernames: StringCreator,
             avatars: Optional[BinaryIOCreator] = None,
             guilds: List[str] = None,
+            reidentify: bool = True,
             *,
             loop: asyncio.AbstractEventLoop,
     ) -> None:
         self._closed: bool = False
         self._started: bool = False
+        self._reidentify: bool = reidentify
         self._spam: MessageKwargCreator = spam
         self._loop: asyncio.AbstractEventLoop = loop
         self._usernames: StringCreator = usernames
@@ -110,17 +112,19 @@ class CallerManager:
             @tasks.loop(loop=self._loop)
             async def spam() -> None:
                 spammed: int = 0
-                for member in client.users:
-                    if member != client.user \
-                            and not member.bot \
-                            and (member.relationship is None
-                                 or member.relationship.type is not discord.RelationshipType.blocked):
+                users_copy: List[discord.User] = client.users.copy()
+                random.shuffle(users_copy)
+                for user in users_copy:
+                    if user != client.user \
+                            and not user.bot \
+                            and (user.relationship is None
+                                 or user.relationship.type is not discord.RelationshipType.blocked):
                         try:
-                            await member.send(**await self._spam.get(client, member))
+                            await user.send(**await self._spam.get(client, user))
                         except discord.Forbidden:
                             try:
                                 await asyncio.sleep(10)
-                                await member.send_friend_request()
+                                await user.send_friend_request()
                             except discord.HTTPException:
                                 pass
                             except Exception:
@@ -128,22 +132,22 @@ class CallerManager:
                             else:
                                 coldcaller_logger.info(
                                     f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                                    f"dispatched a friend request to {member.name} ({member.id})"
+                                    f"dispatched a friend request to {user.name} ({user.id})"
                                 )
                             finally:
                                 await asyncio.sleep(20)
                         except Exception:
                             raise
                         else:
-                            await member.block()
+                            await user.block()
                             spammed += 1
                             coldcaller_logger.info(
                                 f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                                f"spammed (and blocked) {member.name} ({member.id}), "
+                                f"spammed (and blocked) {user.name} ({user.id}), "
                                 f"#{spammed} so far"
                             )
                         finally:
-                            await asyncio.sleep(240)  # Said send limit.
+                            await asyncio.sleep(90)  # Said send limit.
                 else:
                     await asyncio.sleep(120)
 
@@ -152,40 +156,41 @@ class CallerManager:
                 await client.wait_until_ready()
                 await asyncio.sleep(10)
 
-            @tasks.loop(hours=1, loop=self._loop)
-            async def reidentification() -> None:
-                try:
-                    avatar_fp: Optional[BinaryIO] = self._avatars.get() if self._avatars is not None else None
+            if self._reidentify:
+                @tasks.loop(hours=1, loop=self._loop)
+                async def reidentification() -> None:
+                    try:
+                        avatar_fp: Optional[BinaryIO] = self._avatars.get() if self._avatars is not None else None
 
-                    if avatar_fp is not None:
-                        avatar_fp.seek(0)  # "Rewinding a played tape"
+                        if avatar_fp is not None:
+                            avatar_fp.seek(0)  # "Rewinding a played tape"
 
-                    avatar_bytes: bytes = avatar_fp.read() if avatar_fp is not None else None
+                        avatar_bytes: bytes = avatar_fp.read() if avatar_fp is not None else None
 
-                    await client.user.edit(
-                        password=account.password,
-                        username=self._usernames.get(),
-                        avatar=avatar_bytes,
-                        house=random.choice(list(discord.HypeSquadHouse))
-                    )
-                except discord.HTTPException:
-                    coldcaller_logger.warning(
-                        f"Caller #{self._callers.index(self.get_caller(client)) + 1} could not reidentify!"
-                    )
-                except Exception:
-                    raise
-                else:
-                    coldcaller_logger.info(
-                        f"Caller #{self._callers.index(self.get_caller(client)) + 1} changed identity to "
-                        f"{client.user.name} ({client.user.id})"
-                    )
-                finally:
+                        await client.user.edit(
+                            password=account.password,
+                            username=self._usernames.get(),
+                            avatar=avatar_bytes,
+                            house=random.choice(list(discord.HypeSquadHouse))
+                        )
+                    except discord.HTTPException:
+                        coldcaller_logger.warning(
+                            f"Caller #{self._callers.index(self.get_caller(client)) + 1} could not reidentify!"
+                        )
+                    except Exception:
+                        raise
+                    else:
+                        coldcaller_logger.info(
+                            f"Caller #{self._callers.index(self.get_caller(client)) + 1} changed identity to "
+                            f"{client.user.name} ({client.user.id})"
+                        )
+                    finally:
+                        await asyncio.sleep(30)
+
+                @reidentification.before_loop
+                async def wait_for_reidentification() -> None:
+                    await client.wait_until_ready()
                     await asyncio.sleep(30)
-
-            @reidentification.before_loop
-            async def wait_for_reidentification() -> None:
-                await client.wait_until_ready()
-                await asyncio.sleep(30)
 
             @tasks.loop(minutes=40, loop=self._loop)
             async def join_guilds() -> None:
@@ -233,8 +238,9 @@ class CallerManager:
             @client.event
             async def on_connect() -> None:
                 spam.start()
-                reidentification.start()
                 join_guilds.start()
+                if self._reidentify:
+                    reidentification.start()
 
             @client.event
             async def on_ready() -> None:

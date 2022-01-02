@@ -46,14 +46,15 @@ async def verify_account(account: Account, invite: Optional[str] = None, *,
             if client.get_guild(sample_invite.guild.id) is not None:
                 await client.leave_guild(sample_invite.guild.id)
             await sample_invite.use()
-        except discord.HTTPException:
+        except discord.Forbidden:
             logging.error(f"{account.user.name}#{account.user.discriminator} ({account.user.id}) "
-                          f"is not in good standing!")
+                          f"with email {account.email} is not in good standing!")
             working = False
+        except Exception:
             raise
         else:
-            logging.error(f"{account.user.name}#{account.user.discriminator} ({account.user.id}) "
-                          f"is in good standing!")
+            logging.info(f"{account.user.name}#{account.user.discriminator} ({account.user.id}) "
+                         f"with email {account.email} is in good standing!")
             working = True
 
     return working
