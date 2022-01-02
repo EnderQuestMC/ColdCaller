@@ -517,10 +517,10 @@ class AccountCreator:
 
         if args:
             await account.login(*args)
-            return account
         else:
             await account.register(self._username_creator.get(), self._password_creator.get())
-            return account
+
+        return account
 
 
 if __name__ == "__main__":
