@@ -165,7 +165,9 @@ class CallerManager:
                                 f"#{spammed} so far"
                             )
                         finally:
-                            await asyncio.sleep(90)  # Said send limit.
+                            await asyncio.sleep(160)  # Said send limit.
+                    else:
+                        continue
                 else:
                     await asyncio.sleep(120)
 
@@ -349,8 +351,13 @@ class CallerManager:
         if not self._started:
             raise RuntimeError("The manager has not yet started.")
         else:
+            tasks: List[asyncio.Task] = []
+
             for caller in self._callers:
-                await self.remove_caller(caller)
+                tasks.append(self._loop.create_task(self.remove_caller(caller)))
+
+            for task in tasks:
+                await task
 
             coldcaller_logger.info(f"{self} closed")
 
@@ -364,8 +371,13 @@ class CallerManager:
         if self._started:
             raise RuntimeError("The manager has started.")
         else:
+            tasks: List[asyncio.Task] = []
+
             for caller in self._callers:
-                await caller.open()
+                tasks.append(self._loop.create_task(caller.open()))
+
+            for task in tasks:
+                await task
 
             coldcaller_logger.info(f"{self} opened")
 

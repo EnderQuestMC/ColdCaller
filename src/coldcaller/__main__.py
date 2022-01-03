@@ -4,6 +4,7 @@ https://github.com/regulad/ColdCaller
 """
 import argparse
 import asyncio
+import datetime
 import json
 import logging
 import os
@@ -42,6 +43,9 @@ def main() -> None:
                         help="Unblocks all accounts as all users.")
     parser.add_argument("--verify", "-v", dest="verify", default=False, const=True, action='store_const',
                         help="Verifies all accounts are in good standing.")
+    parser.add_argument("--clean", "-g", dest="clean", default=False, const=True, action='store_const',
+                        help="Verifies all accounts are in good standing, and snips out those that arent. "
+                             "Take a copy of your tokens before running this, it may have false negatives.")
     parser.add_argument("--leave", "-e", dest="leave", default=False, const=True, action='store_const',
                         help="Leaves/exits all guilds.")
     parser.add_argument("--no-reidentify", "-r", dest="reidentify", default=False, const=True, action='store_const',
@@ -188,8 +192,23 @@ def main() -> None:
         loop.run_until_complete(unblock_all_as_all(accounts.copy(), loop=loop, **constructor_kwargs))
 
     if args.verify:
-        loop.run_until_complete(verify_all(accounts.copy(), guilds[0] if args.invites else None,
-                                           loop=loop, **constructor_kwargs))
+        loop.run_until_complete(verify_all(accounts.copy(), loop=loop, **constructor_kwargs))
+
+    if args.clean:
+        good_accounts: List[Account] = loop.run_until_complete(verify_all(accounts.copy(), loop=loop,
+                                                                          **constructor_kwargs))
+
+        output_json: List[Dict[str, str]] = []
+
+        for account in good_accounts:
+            output_json.append({
+                "email": account.email,
+                "password": account.password,
+                "token": account.token
+            })
+
+        with open(os.path.join("config", "tokens.json"), "w") as output_fp:
+            json.dump(output_json, output_fp, indent=4, sort_keys=True)
 
     if args.leave:
         loop.run_until_complete(leave_all_as_all(accounts.copy(), loop=loop, **constructor_kwargs))
@@ -206,42 +225,54 @@ def main() -> None:
                     await account.verify_email()
                 except discord.DiscordException:
                     logging.error("Cannot make account!")
-                    continue  # Discord cockblocked us.
+                    raise
                 except RuntimeError as runtime_error:
                     if str(runtime_error) == "Retry":
                         logging.error("Cannot verify email!")
-                        continue  # Failed to verify email
-                    else:
-                        raise
+                    raise
                 except Exception:
                     raise
                 else:
                     if await verify_account(account, loop=loop):
                         new_accounts.append(account)
                     else:
-                        continue
+                        raise RuntimeError("Account is not in good standing!")
                 if index != amount - 1:  # Don't bother if we are about to do something else
                     await asyncio.sleep(90)
 
         loop.run_until_complete(run())
 
-        output_json: List[Dict[str, str]] = []
-
-        for account in new_accounts:
-            output_json.append({
-                "email": account.email,
-                "password": account.password,
-                "token": account.token
-            })
-
         if args.save_users:
-            accounts.extend(new_accounts)
-            new_accounts = accounts
+            intermediate = []
+            intermediate.extend(accounts)
+            intermediate.extend(new_accounts)
+
+            output_json: List[Dict[str, str]] = []
+
+            for account in intermediate:
+                output_json.append({
+                    "email": account.email,
+                    "password": account.password,
+                    "token": account.token
+                })
+
+            with open(os.path.join("config", "tokens.json"), "w") as output_fp:
+                json.dump(output_json, output_fp, indent=4, sort_keys=True)
         elif not os.path.exists(os.path.join("output")):
             os.mkdir(os.path.join("output"))
 
-        with open(os.path.join("config" if args.save_users else "output", "tokens.json"), "w") as output_fp:
-            json.dump(output_json, output_fp, indent=4, sort_keys=True)
+            output_json: List[Dict[str, str]] = []
+
+            for account in new_accounts:
+                output_json.append({
+                    "email": account.email,
+                    "password": account.password,
+                    "token": account.token
+                })
+
+            with open(os.path.join("output", f"{datetime.datetime.now().isoformat()}.json"), "w") as output_fp:
+                json.dump(output_json, output_fp, indent=4, sort_keys=True)
+
     if not args.no_spam:
         # Setup CallerManager
 

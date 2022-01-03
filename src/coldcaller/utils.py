@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Tuple
 
 import discord
 from discord.auth import Account
@@ -33,31 +33,25 @@ class _ClientContextManager:
             await self._client.close()
 
 
-async def verify_account(account: Account, invite: Optional[str] = None, *,
-                         loop: Optional[asyncio.AbstractEventLoop] = None, **kwargs) -> bool:
+async def verify_account(account: Account, loop: Optional[asyncio.AbstractEventLoop] = None, **kwargs) -> bool:
     loop = loop or asyncio.get_event_loop()
-    invite = invite or "OneShot"
-
-    working: bool = False
 
     async with _ClientContextManager(account, loop=loop, **kwargs) as client:
         try:
-            sample_invite: discord.Invite = await client.fetch_invite(invite)
-            if client.get_guild(sample_invite.guild.id) is not None:
-                await client.leave_guild(sample_invite.guild.id)
-            await sample_invite.use()
+            await client.fetch_user_profile(account.user.id)
         except discord.Forbidden:
             logging.error(f"{account.user.name}#{account.user.discriminator} ({account.user.id}) "
                           f"with email {account.email} is not in good standing!")
-            working = False
+            return False
+        except discord.HTTPException:
+            await asyncio.sleep(90)  # In case we are getting rate-limited.
+            return await verify_account(account, **kwargs)
         except Exception:
             raise
         else:
             logging.info(f"{account.user.name}#{account.user.discriminator} ({account.user.id}) "
                          f"with email {account.email} is in good standing!")
-            working = True
-
-    return working
+            return True
 
 
 def get_logging_level(name: str) -> int:
@@ -131,17 +125,21 @@ async def leave_all(account: Account, *, loop: Optional[asyncio.AbstractEventLoo
                 await asyncio.sleep(10)
 
 
-async def verify_all(accounts: List[Account], invite: Optional[str] = None,
-                     *, loop: Optional[asyncio.AbstractEventLoop] = None, **kwargs) -> None:
+async def verify_all(accounts: List[Account], *, loop: Optional[asyncio.AbstractEventLoop] = None,
+                     **kwargs) -> List[Account]:
     loop = loop or asyncio.get_event_loop()
 
-    tasks: List[asyncio.Task] = []
+    tasks: List[Tuple[Account, asyncio.Task]] = []
+    good_accounts: List[Account] = []
 
     for account in accounts:
-        tasks.append(loop.create_task(verify_account(account, invite, loop=loop, **kwargs)))
+        tasks.append((account, loop.create_task(verify_account(account, loop=loop, **kwargs))))
 
-    for task in tasks:
-        await task
+    for account, task in tasks:
+        if await task:
+            good_accounts.append(account)
+
+    return good_accounts
 
 
 async def unblock_all(account: Account, *, loop: Optional[asyncio.AbstractEventLoop], **kwargs) -> None:
