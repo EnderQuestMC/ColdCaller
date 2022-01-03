@@ -28,6 +28,8 @@ in `tokens.json` instead of just defining an email and password.
 
 ### CLI
 
-You can also use it entirely from the command line. Simply install using pip `pip install coldcaller`.
+You can also use it entirely from the command line. Simply install using pip `pip install https://github.com/regulad/ColdCaller.git`.
+
+You will need `pip3`, Python 3.10, and `git`.
 
 You can see help with `coldcaller -h`.
