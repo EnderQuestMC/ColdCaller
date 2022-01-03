@@ -137,12 +137,16 @@ class StringCreator(Creator, abc.ABC):
 
 
 class PasswordCreator(StringCreator):
-    def __init__(self,
-                 password_characters: List[str] = string.ascii_letters + string.digits + string.punctuation) -> None:
+    def __init__(
+            self,
+            password_characters: List[str] = (string.ascii_letters + string.digits) * 3 + string.punctuation,
+            length: range = range(16, 20),
+    ) -> None:
         self._password_characters: List[str] = password_characters
+        self._range: range = length
 
     def get(self) -> str:
-        return "".join(random.choice(self._password_characters) for i in range(10))
+        return "".join(random.choice(self._password_characters) for _ in range(random.choice(self._range)))
 
 
 class WordUsernameCreator(StringCreator):
