@@ -55,23 +55,22 @@ async def verify_account(account: Account, loop: Optional[asyncio.AbstractEventL
 
 
 def get_logging_level(name: str) -> int:
-    name = name.upper()
-    if name == "CRITICAL":
-        return logging.CRITICAL
-    elif name == "FATAL":
-        return logging.FATAL
-    elif name == "ERROR":
-        return logging.ERROR
-    elif name == "WARNING":
-        return logging.WARNING
-    elif name == "WARN":
-        return logging.WARN
-    elif name == "INFO":
-        return logging.INFO
-    elif name == "DEBUG":
-        return logging.DEBUG
-    else:
-        return logging.NOTSET
+    match name.upper():
+        case "CRITICAL":
+            return logging.CRITICAL
+        case "FATAL":
+            return logging.FATAL
+        case "ERROR":
+            return logging.ERROR
+        case "WARNING":
+            return logging.WARNING
+        case "WARN":
+            return logging.WARN
+        case "INFO":
+            return logging.INFO
+        case "DEBUG":
+            return logging.DEBUG
+    return logging.NOTSET
 
 
 async def unblock_all_as_all(accounts: List[Account], *, loop: Optional[asyncio.AbstractEventLoop] = None,

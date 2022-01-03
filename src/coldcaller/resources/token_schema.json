@@ -1,23 +1,23 @@
 {
-  "$schema": "http://json-schema.org/draft/2019-09/schema#",
-  "$id": "https://www.regulad.xyz/ColdCaller/resources/token_schema.json",
-  "type": "array",
-  "items": {
-    "type": "object",
-    "properties": {
-      "token": {
-        "type": "string"
-      },
-      "password": {
-        "type": "string"
-      },
-      "email": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "email",
-      "password"
-    ]
-  }
+    "$schema": "http://json-schema.org/draft/2019-09/schema#",
+    "$id": "https://www.regulad.xyz/ColdCaller/resources/token_schema.json",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "token": {
+                "type": "string"
+            },
+            "password": {
+                "type": "string"
+            },
+            "email": {
+                "type": "string"
+            }
+        },
+        "required": [
+            "email",
+            "password"
+        ]
+    }
 }

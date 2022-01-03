@@ -64,7 +64,7 @@ def main() -> None:
 
     # Common
 
-    loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+    loop: asyncio.AbstractEventLoop = asyncio.get_event_loop_policy().get_event_loop()
 
     logging.basicConfig(level=get_logging_level(args.loglevel),
                         format="%(asctime)s:%(levelname)s:%(name)s: %(message)s")
@@ -129,7 +129,6 @@ def main() -> None:
     for file_name in os.listdir(os.path.join("config", "files")):
         files.append(os.path.join("config", "files", file_name))
 
-
     message: Optional[str] = args.message
 
     if not message:
@@ -143,7 +142,6 @@ def main() -> None:
             embed = json.load(embed_fp)
 
     messsage_kwarg_creator: SpamMessageKwargCreator = SpamMessageKwargCreator(message, files, embed)
-
 
     # Load existing tokens
 
