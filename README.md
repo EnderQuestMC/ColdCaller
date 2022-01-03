@@ -28,6 +28,18 @@ in `tokens.json` instead of just defining an email and password.
 
 ### CLI
 
-You can also use it entirely from the command line. Simply install using pip `pip install coldcaller`.
+You can also use it entirely from the command line. Simply install using pip ```pip install git+https://github.com/regulad/ColdCaller.git```.
+
+You will need `pip3`, Python 3.10, and `git`.
+
+You can use the fancy new package manager in Windows: `winget`
+
+```winget install -e --id Python.Python.3```
+
+```winget install -e --id Git.Git```
+
+```winget install -e --id GitHub.GitLFS```
+
+I have also compiled a [bundle of scripts](https://gist.github.com/regulad/3ebad109d47a0546a09d0395c45fc228) for installing these tools quickly on a debian-based system.
 
 You can see help with `coldcaller -h`.
