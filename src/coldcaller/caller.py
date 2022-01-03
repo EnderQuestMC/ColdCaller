@@ -353,7 +353,10 @@ class CallerManager:
         else:
             tasks: List[asyncio.Task] = []
 
-            for caller in self._callers:
+            caller_copy: List[Caller] = self._callers.copy()
+            caller_copy.reverse()
+
+            for caller in caller_copy:
                 tasks.append(self._loop.create_task(self.remove_caller(caller)))
 
             for task in tasks:
