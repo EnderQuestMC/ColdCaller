@@ -122,7 +122,7 @@ class CallerManager:
                     else None
                 users_copy: List[discord.User] = client.users.copy() if possible_user is None else [possible_user]
                 random.shuffle(users_copy)
-                for user in users_copy:
+                for user in users_copy:  # There is no way to get a server's members.
                     if user != client.user \
                             and not user.bot \
                             and (user.relationship is None
@@ -140,10 +140,17 @@ class CallerManager:
                             else:
                                 coldcaller_logger.info(
                                     f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                                    f"dispatched a friend request to {user.name} ({user.id})"
+                                    f"dispatched a friend request to {user.name}#{user.discriminator} ({user.id})"
                                 )
                             finally:
                                 await asyncio.sleep(20)
+                        except discord.HTTPException as http_exception:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"send to {user.name}#{user.discriminator} ({user.id}) "
+                                f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
+                            )
+                            continue
                         except Exception as exception:
                             coldcaller_logger.critical(
                                 f"Unknown error: {exception}"
@@ -154,7 +161,7 @@ class CallerManager:
                             spammed += 1
                             coldcaller_logger.info(
                                 f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                                f"spammed (and blocked) {user.name} ({user.id}), "
+                                f"spammed (and blocked) {user.name}#{user.discriminator} ({user.id}), "
                                 f"#{spammed} so far"
                             )
                         finally:
@@ -257,7 +264,9 @@ class CallerManager:
             async def on_ready() -> None:
                 coldcaller_logger.info(
                     f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                    f"logged in as {client.user.name} ({client.user.id})"
+                    f"logged in as {client.user.name} ({client.user.id}), "
+                    f"in {len(client.guilds)} guilds. "
+                    f"({', '.join([f'{guild.name} ({guild.id})' for guild in client.guilds])})"
                 )
 
             @client.event
@@ -275,7 +284,7 @@ class CallerManager:
                     except discord.HTTPException as http_exception:
                         coldcaller_logger.warning(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                            f"couldn't spam {after.user.name} ({after.user.id}) "
+                            f"couldn't spam {after.user.name}#{after.user.discriminator} ({after.user.id}) "
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                         )
                         raise
@@ -284,7 +293,7 @@ class CallerManager:
                     else:
                         coldcaller_logger.info(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                            f"spammed {after.user.name} ({after.user.id})"
+                            f"spammed {after.user.name}#{after.user.discriminator} ({after.user.id})"
                         )
                     finally:
                         await asyncio.sleep(240)  # Users can only open a limited number of DMs.
@@ -293,7 +302,7 @@ class CallerManager:
                     except discord.HTTPException as http_exception:
                         coldcaller_logger.warning(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                            f"couldn't block {after.user.name} ({after.user.id}) "
+                            f"couldn't block {after.user.name}#{after.user.discriminator} ({after.user.id}) "
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                         )
                         raise
