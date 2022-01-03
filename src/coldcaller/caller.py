@@ -111,7 +111,7 @@ class CallerManager:
 
             client: discord.Client = client or discord.Client(**kwargs)
 
-            @tasks.loop(loop=self._loop)
+            @tasks.loop(minutes=3, loop=self._loop)
             async def spam() -> None:
                 spammed: int = 0
                 possible_user: Optional[discord.User] = (
@@ -129,25 +129,46 @@ class CallerManager:
                                  or user.relationship.type is not discord.RelationshipType.blocked):
                         try:
                             await user.send(**await self._spam.get(client, user))
-                        except discord.Forbidden:
-                            try:
-                                await asyncio.sleep(10)
-                                await user.send_friend_request()
-                            except discord.HTTPException:
-                                pass
-                            except Exception:
-                                raise
-                            else:
-                                coldcaller_logger.info(
+                        except discord.Forbidden as forbidden:
+                            if forbidden.code == 40002:
+                                coldcaller_logger.warning(
                                     f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                                    f"dispatched a friend request to {user.name}#{user.discriminator} ({user.id})"
+                                    f"could not send a friend the user {user.name}#{user.discriminator} ({user.id}) "
+                                    f"because it is no longer in good standing!"
                                 )
-                            finally:
-                                await asyncio.sleep(20)
+                                continue
+                            else:
+                                try:
+                                    await asyncio.sleep(10)
+                                    await user.send_friend_request()
+                                except discord.Forbidden as forbidden:
+                                    coldcaller_logger.warning(
+                                        f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                        f"could not send a friend the user {user.name}#{user.discriminator} ({user.id}) "
+                                        f"because of {forbidden.text} ({forbidden.code}, {forbidden.status})"
+                                    )
+                                    continue
+                                except discord.HTTPException as http_exception:
+                                    coldcaller_logger.warning(
+                                        f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                        f"could not send a friend the user {user.name}#{user.discriminator} ({user.id}) "
+                                        f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
+                                    )
+                                    continue
+                                except Exception:
+                                    raise  # No idea.
+                                else:
+                                    coldcaller_logger.info(
+                                        f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                        f"dispatched a friend request to the user "
+                                        f"{user.name}#{user.discriminator} ({user.id})"
+                                    )
+                                finally:
+                                    await asyncio.sleep(20)
                         except discord.HTTPException as http_exception:
                             coldcaller_logger.warning(
                                 f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                                f"send to {user.name}#{user.discriminator} ({user.id}) "
+                                f"could not spam the user {user.name}#{user.discriminator} ({user.id}) "
                                 f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                             )
                             continue
@@ -165,11 +186,7 @@ class CallerManager:
                                 f"#{spammed} so far"
                             )
                         finally:
-                            await asyncio.sleep(160)  # Said send limit.
-                    else:
-                        continue
-                else:
-                    await asyncio.sleep(120)
+                            await asyncio.sleep(180)  # Said send limit.
 
             @spam.before_loop
             async def wait_for_client() -> None:
@@ -193,9 +210,24 @@ class CallerManager:
                             avatar=avatar_bytes,
                             house=random.choice(list(discord.HypeSquadHouse))
                         )
-                    except discord.HTTPException:
+                    except discord.Forbidden as forbidden:
+                        if forbidden.code == 40002:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't reidentify "
+                                f"because of {forbidden.text} ({forbidden.code}, {forbidden.status})"
+                            )
+                        else:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't reidentify "
+                                f"because of {forbidden.text} ({forbidden.code}, {forbidden.status})"
+                            )
+                    except discord.HTTPException as http_exception:
                         coldcaller_logger.warning(
-                            f"Caller #{self._callers.index(self.get_caller(client)) + 1} could not reidentify!"
+                            f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                            f"couldn't reidentify "
+                            f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                         )
                     except Exception:
                         raise
@@ -204,8 +236,6 @@ class CallerManager:
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} changed identity to "
                             f"{client.user.name} ({client.user.id})"
                         )
-                    finally:
-                        await asyncio.sleep(30)
 
                 @reidentification.before_loop
                 async def wait_for_reidentification() -> None:
@@ -220,15 +250,31 @@ class CallerManager:
                     try:
                         joinable_guild: discord.Invite = await client.fetch_invite(guild_invite)
                         joined_guild: discord.Guild = await joinable_guild.use()
-                    except discord.HTTPException as http_exception:
-                        if http_exception.code == 40007 and http_exception.status == 403:
-                            continue  # Banned.
+                    except discord.Forbidden as forbidden:
+                        if forbidden.code == 40002:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't use the invite {guild_invite} "
+                                f"because it is no longer in good standing!"
+                            )
+                        elif forbidden.code == 40007:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't use the invite {guild_invite} "
+                                f"because it is banned from the guild!"
+                            )
                         else:
                             coldcaller_logger.warning(
                                 f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
                                 f"couldn't use the invite {guild_invite} "
-                                f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
+                                f"because of {forbidden.text} ({forbidden.code}, {forbidden.status})"
                             )
+                    except discord.HTTPException as http_exception:
+                        coldcaller_logger.warning(
+                            f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                            f"couldn't use the invite {guild_invite} "
+                            f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
+                        )
                     except discord.InvalidArgument or NameError:  # Why the hell does this raise NameError?
                         continue  # We likely just tried to join the same server.
                     except Exception:
@@ -250,7 +296,7 @@ class CallerManager:
             async def on_disconnect() -> None:
                 if spam.is_running():
                     spam.cancel()
-                if reidentification.is_running():
+                if self._reidentify and reidentification.is_running():
                     reidentification.cancel()
                 if join_guilds.is_running():
                     join_guilds.cancel()
@@ -283,10 +329,26 @@ class CallerManager:
                         and after.type == discord.RelationshipType.friend:
                     try:
                         await after.user.send(**await self._spam.get(client, after.user))
+                    except discord.Forbidden as forbidden:
+                        if forbidden.code == 40002:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't spam the user "
+                                f"{after.user.name}#{after.user.discriminator} ({after.user.id}) "
+                                f"because it is no longer in good standing!"
+                            )
+                        else:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't spam the user "
+                                f"{after.user.name}#{after.user.discriminator} ({after.user.id}) "
+                                f"because of {forbidden.text} ({forbidden.code}, {forbidden.status})"
+                            )
+                        raise
                     except discord.HTTPException as http_exception:
                         coldcaller_logger.warning(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                            f"couldn't spam {after.user.name}#{after.user.discriminator} ({after.user.id}) "
+                            f"couldn't spam the user {after.user.name}#{after.user.discriminator} ({after.user.id}) "
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                         )
                         raise
@@ -295,23 +357,40 @@ class CallerManager:
                     else:
                         coldcaller_logger.info(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                            f"spammed {after.user.name}#{after.user.discriminator} ({after.user.id})"
+                            f"spammed the user {after.user.name}#{after.user.discriminator} ({after.user.id})"
                         )
                     finally:
                         await asyncio.sleep(240)  # Users can only open a limited number of DMs.
                     try:
                         await after.user.block()
+                    except discord.Forbidden as forbidden:
+                        if forbidden.code == 40002:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't block the user "
+                                f"{after.user.name}#{after.user.discriminator} ({after.user.id}) "
+                                f"because it is no longer in good standing!"
+                            )
+                        else:
+                            coldcaller_logger.warning(
+                                f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
+                                f"couldn't block the user "
+                                f"{after.user.name}#{after.user.discriminator} ({after.user.id}) "
+                                f"because of {forbidden.text} ({forbidden.code}, {forbidden.status})"
+                            )
+                        raise
                     except discord.HTTPException as http_exception:
                         coldcaller_logger.warning(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                            f"couldn't block {after.user.name}#{after.user.discriminator} ({after.user.id}) "
+                            f"couldn't block the user "
+                            f"{after.user.name}#{after.user.discriminator} ({after.user.id}) "
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                         )
                         raise
                     else:
                         coldcaller_logger.info(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                            f"blocked {after.user.name} ({after.user.id})"
+                            f"was called back to spam and block the user {after.user.name} ({after.user.id})"
                         )
                     finally:
                         await asyncio.sleep(20)
@@ -320,14 +399,15 @@ class CallerManager:
             async def on_guild_remove(guild: discord.Guild):
                 coldcaller_logger.warning(
                     f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
-                    f"was removed from {guild.name}#{guild.id}, {len(client.guilds)} remain for this caller."
+                    f"was removed from the guild {guild.name} ({guild.id}), "
+                    f"{len(client.guilds)} remain for this caller."
                 )
 
             caller: Caller = Caller(client, account)
 
             self._callers.append(caller)
 
-            coldcaller_logger.info(f"Caller added at {self._callers.index(self.get_caller(client)) + 1}")
+            coldcaller_logger.info(f"Caller added at index {self._callers.index(self.get_caller(client)) + 1}")
 
             return caller
 
