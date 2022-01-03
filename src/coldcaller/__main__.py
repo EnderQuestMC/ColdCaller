@@ -208,6 +208,9 @@ def main() -> None:
         with open(os.path.join("config", "tokens.json"), "w") as output_fp:
             json.dump(output_json, output_fp, indent=4, sort_keys=True)
 
+        accounts.clear()
+        accounts.extend(good_accounts)
+
     if args.leave:
         loop.run_until_complete(leave_all_as_all(accounts.copy(), loop=loop, **constructor_kwargs))
 
