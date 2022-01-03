@@ -4,6 +4,10 @@ ColdCaller is a program that orchestrates cold calling Discord users with spam m
 
 It can create accounts, but these accounts must currently have a verified phone number.
 
+## WARNING
+
+This project is for evaluation purposes only. Please, PLEASE don't use this maliciously. This is just a fun winter break project.
+
 ## Configuration
 
 ### Files in `config/`
