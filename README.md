@@ -14,6 +14,10 @@ This project is for evaluation purposes only. Please, PLEASE don't use this mali
 
 * `message.md`: The message to send to a user after obtaining the ability to message them. Note that this is not full
   markdown because of missing features on discord. Required.
+  * You may use the placeholder `spamee` for the person being spammed.
+    * This is a `discord.User`, so you can use properties like `spamee.mention`
+  * You may use the placeholder `spamer` for the bot sending the message.
+    * This is a `discord.ClientUser`, so you can use properties like `spamer.mention`
 * `tokens.json`: A JSON array of emails and passwords. Optional. Fresh accounts will be added to this.
 * `embed.json`: A embed to send, in JSON form.
 * `files`: Any files in the files folder will be attached to the message the bot sends.
