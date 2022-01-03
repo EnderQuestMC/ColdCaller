@@ -80,6 +80,11 @@ class CallerManager:
         self._guilds: List[str] = guilds
 
         self._callers: List[Caller] = []
+        self._spammed: int = 0
+
+    @property
+    def spammed(self) -> int:
+        return self._spammed
 
     def get_caller(self, client: discord.Client) -> Optional[Caller]:
         """Gets a caller from it's client."""
@@ -113,7 +118,6 @@ class CallerManager:
 
             @tasks.loop(minutes=3, loop=self._loop)
             async def spam() -> None:
-                spammed: int = 0
                 possible_user: Optional[discord.User] = (
                         client.get_user(self._test_user)
                         or await client.fetch_user(self._test_user)
@@ -179,11 +183,11 @@ class CallerManager:
                             raise
                         else:
                             await user.block()
-                            spammed += 1
+                            self._spammed += 1
                             coldcaller_logger.info(
                                 f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
                                 f"spammed (and blocked) {user.name}#{user.discriminator} ({user.id}), "
-                                f"#{spammed} so far"
+                                f"{self._spammed} spammed so far"
                             )
                         finally:
                             await asyncio.sleep(180)  # Said send limit.
@@ -344,14 +348,14 @@ class CallerManager:
                                 f"{after.user.name}#{after.user.discriminator} ({after.user.id}) "
                                 f"because of {forbidden.text} ({forbidden.code}, {forbidden.status})"
                             )
-                        raise
+                        return
                     except discord.HTTPException as http_exception:
                         coldcaller_logger.warning(
                             f"Caller #{self._callers.index(self.get_caller(client)) + 1} "
                             f"couldn't spam the user {after.user.name}#{after.user.discriminator} ({after.user.id}) "
                             f"because of {http_exception.text} ({http_exception.code}, {http_exception.status})"
                         )
-                        raise
+                        return
                     except Exception as exception:
                         raise exception
                     else:

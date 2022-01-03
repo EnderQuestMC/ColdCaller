@@ -18,6 +18,9 @@ from discord.auth import Account
 from . import *
 
 
+coldcaller_logger: logging.Logger = logging.getLogger(__name__)
+
+
 def main() -> None:
     # Parser TODO: Add better docker support
 
@@ -120,7 +123,7 @@ def main() -> None:
     embeds: List[dict] = []
 
     if not os.path.exists(os.path.join("config")):
-        logging.warning("Config folder is missing!")
+        coldcaller_logger.warning("Config folder is missing!")
         os.mkdir(os.path.join("config"))
 
     if not os.path.exists(os.path.join("config", "files")):
@@ -225,11 +228,11 @@ def main() -> None:
                     account: Account = await account_creator.create_account()
                     await account.verify_email()
                 except discord.DiscordException:
-                    logging.error("Cannot make account!")
+                    coldcaller_logger.error("Cannot make account!")
                     raise
                 except RuntimeError as runtime_error:
                     if str(runtime_error) == "Retry":
-                        logging.error("Cannot verify email!")
+                        coldcaller_logger.error("Cannot verify email!")
                     raise
                 except Exception:
                     raise
@@ -293,12 +296,15 @@ def main() -> None:
         # Run
 
         try:
-            logging.info("Running...")
+            coldcaller_logger.info("Running...")
 
             loop.run_until_complete(caller_manager.open())
             loop.run_forever()
         except KeyboardInterrupt:
             loop.run_until_complete(caller_manager.close())
+
+            coldcaller_logger.info("Done.")
+            coldcaller_logger.info(f"We spammed {caller_manager.spammed} people.")
         except Exception:
             raise
 
