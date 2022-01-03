@@ -35,7 +35,9 @@ You will need `pip3`, Python 3.10, and `git`.
 You can use the fancy new package manager in Windows: `winget`
 
 ```winget install -e --id Python.Python.3```
+
 ```winget install -e --id Git.Git```
+
 ```winget install -e --id GitHub.GitLFS```
 
 I have also compiled a [bundle of scripts](https://gist.github.com/regulad/3ebad109d47a0546a09d0395c45fc228) for installing these tools quickly on a debian-based system.
