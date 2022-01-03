@@ -307,6 +307,10 @@ def main() -> None:
             coldcaller_logger.info(f"We spammed {caller_manager.spammed} people.")
         except Exception:
             raise
+        finally:
+            for handler in logging.root.handlers.copy():
+                logging.root.removeHandler(handler)
+                handler.close()
 
 
 if __name__ == "__main__":
